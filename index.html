@@ -1,0 +1,133 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF AI Assistant</title>
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+</head>
+<body>
+
+<div class="app">
+
+    <!-- Sidebar -->
+    <aside class="sidebar">
+        <div class="logo">✦ DocuMind</div>
+
+        <button class="new-chat" onclick="newChat()">+ New Chat</button>
+
+        <p class="menu-title">WORKSPACE</p>
+        <a class="active">▦ Dashboard</a>
+        <a>▤ My Documents</a>
+        <a>◉ AI Assistant</a>
+        <a>✧ Summarizer</a>
+        <a>☷ Quiz Generator</a>
+        <a>⇄ Compare PDFs</a>
+
+        <div class="sidebar-bottom">
+            <a>⚙ Settings</a>
+            <div class="profile">
+                <div class="avatar">A</div>
+                <div>
+                    <strong>My Account</strong>
+                    <small>Free Plan</small>
+                </div>
+            </div>
+        </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="main">
+
+        <header class="topbar">
+            <div>
+                <h2>Dashboard</h2>
+                <p>Your intelligent document workspace</p>
+            </div>
+            <button class="upgrade">Upgrade Plan ↗</button>
+        </header>
+
+        <section class="welcome">
+            <div>
+                <span class="tag">AI POWERED DOCUMENT INTELLIGENCE</span>
+                <h1>Understand your PDFs.<br>
+                <span>Think smarter.</span></h1>
+                <p>Upload documents, ask questions and discover insights instantly.</p>
+            </div>
+            <div class="welcome-icon">✧</div>
+        </section>
+
+        <!-- Upload Section -->
+        <section class="upload-section">
+            <h3>Upload your document</h3>
+            <div class="upload-box" id="dropZone">
+                <div class="upload-icon">↑</div>
+                <h3>Drop your PDF here</h3>
+                <p>or browse files from your computer</p>
+
+                <input type="file" id="pdfInput" accept=".pdf" hidden>
+                <button onclick="document.getElementById('pdfInput').click()">
+                    Browse PDF
+                </button>
+                <small>PDF files only · Maximum 20 MB</small>
+            </div>
+            <p id="fileStatus"></p>
+        </section>
+
+        <!-- Feature Cards -->
+        <section class="features">
+            <h3>Explore AI Features</h3>
+
+            <div class="feature-grid">
+                <div class="feature-card" onclick="openFeature('chat')">
+                    <div class="feature-icon purple">✧</div>
+                    <h4>Ask AI</h4>
+                    <p>Get answers from your PDFs.</p>
+                    <span>Explore →</span>
+                </div>
+
+                <div class="feature-card" onclick="openFeature('summary')">
+                    <div class="feature-icon blue">▤</div>
+                    <h4>Smart Summary</h4>
+                    <p>Generate concise document notes.</p>
+                    <span>Explore →</span>
+                </div>
+
+                <div class="feature-card" onclick="openFeature('quiz')">
+                    <div class="feature-icon orange">✎</div>
+                    <h4>Quiz Generator</h4>
+                    <p>Create MCQs from your PDFs.</p>
+                    <span>Explore →</span>
+                </div>
+
+                <div class="feature-card" onclick="openFeature('compare')">
+                    <div class="feature-icon green">⇄</div>
+                    <h4>Compare PDFs</h4>
+                    <p>Find similarities and differences.</p>
+                    <span>Explore →</span>
+                </div>
+            </div>
+        </section>
+
+        <!-- Recent Documents -->
+        <section class="documents">
+            <div class="section-heading">
+                <h3>Recent Documents</h3>
+                <a>View all →</a>
+            </div>
+
+            <div id="documentList" class="document-list">
+                <div class="empty-state">
+                    Your uploaded documents will appear here.
+                </div>
+            </div>
+        </section>
+
+    </main>
+</div>
+
+<script src="script.js"></script>
+</body>
+</html>
