@@ -1,132 +1,663 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PDF AI Assistant</title>
-    <link rel="stylesheet" href="style.css">
+    <meta name="description" content="DocuMind – an intelligent PDF question answering system using Retrieval-Augmented Generation.">
+    <meta name="color-scheme" content="light dark">
+    <title>DocuMind – Intelligent PDF Assistant</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+
+    <!-- Lucide icons (initialise with lucide.createIcons() in script.js) -->
+    <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js" defer></script>
 </head>
 <body>
 
-<div class="app">
+<a class="skip-link" href="#mainContent">Skip to main content</a>
 
-    <!-- Sidebar -->
-    <aside class="sidebar">
-        <div class="logo">✦ DocuMind</div>
+<div class="app" id="app">
 
-        <button class="new-chat" onclick="newChat()">+ New Chat</button>
+    <!-- ===================== SIDEBAR ===================== -->
+    <aside class="sidebar" id="sidebar" aria-label="Primary sidebar">
+        <div class="sidebar-header">
+            <a class="logo" href="#dashboard" data-page="dashboard" aria-label="DocuMind home">
+                <span class="logo-mark" aria-hidden="true"><i data-lucide="sparkles"></i></span>
+                <span class="logo-text">DocuMind</span>
+            </a>
+            <button class="icon-btn sidebar-close" id="sidebarClose" type="button" aria-label="Close sidebar">
+                <i data-lucide="x"></i>
+            </button>
+        </div>
 
-        <p class="menu-title">WORKSPACE</p>
-        <a class="active">▦ Dashboard</a>
-        <a>▤ My Documents</a>
-        <a>◉ AI Assistant</a>
-        <a>✧ Summarizer</a>
-        <a>☷ Quiz Generator</a>
-        <a>⇄ Compare PDFs</a>
+        <button class="new-chat" id="newChatBtn" type="button" onclick="newChat()">
+            <i data-lucide="plus"></i>
+            <span>New Chat</span>
+        </button>
+
+        <nav class="sidebar-nav" id="sidebarNav" aria-label="Main navigation">
+            <p class="menu-title" id="workspaceLabel">WORKSPACE</p>
+            <ul class="nav-list" aria-labelledby="workspaceLabel">
+                <li>
+                    <a href="#dashboard" class="nav-link active" id="navDashboard" data-page="dashboard" aria-current="page">
+                        <i data-lucide="layout-dashboard"></i><span>Dashboard</span>
+                    </a>
+                </li>
+                <li>
+                    <a href="#documents" class="nav-link" id="navDocuments" data-page="documents">
+                        <i data-lucide="files"></i><span>My Documents</span>
+                        <span class="nav-badge" id="navDocumentCount" aria-label="Number of documents">0</span>
+                    </a>
+                </li>
+                <li>
+                    <a href="#assistant" class="nav-link" id="navAssistant" data-page="assistant">
+                        <i data-lucide="message-square-text"></i><span>AI Assistant</span>
+                    </a>
+                </li>
+                <li>
+                    <a href="#summarizer" class="nav-link" id="navSummarizer" data-page="summarizer">
+                        <i data-lucide="file-text"></i><span>Smart Summarizer</span>
+                    </a>
+                </li>
+                <li>
+                    <a href="#quiz" class="nav-link" id="navQuiz" data-page="quiz">
+                        <i data-lucide="list-checks"></i><span>Quiz Generator</span>
+                    </a>
+                </li>
+                <li>
+                    <a href="#compare" class="nav-link" id="navCompare" data-page="compare">
+                        <i data-lucide="git-compare-arrows"></i><span>Compare PDFs</span>
+                    </a>
+                </li>
+            </ul>
+
+            <p class="menu-title" id="recentChatsLabel">RECENT CHATS</p>
+            <ul class="chat-history" id="chatHistory" aria-labelledby="recentChatsLabel">
+                <li class="chat-history-empty" id="chatHistoryEmpty">No conversations yet.</li>
+            </ul>
+        </nav>
 
         <div class="sidebar-bottom">
-            <a>⚙ Settings</a>
-            <div class="profile">
-                <div class="avatar">A</div>
-                <div>
-                    <strong>My Account</strong>
-                    <small>Free Plan</small>
+            <a href="#settings" class="nav-link" id="navSettings" data-page="settings">
+                <i data-lucide="settings"></i><span>Settings</span>
+            </a>
+
+            <div class="profile" id="userProfile">
+                <div class="avatar" id="userAvatar" aria-hidden="true">A</div>
+                <div class="profile-info">
+                    <strong id="userName">My Account</strong>
+                    <small id="userPlan">Free Plan</small>
                 </div>
+                <button class="icon-btn" id="profileMenuBtn" type="button" aria-label="Open account menu" aria-haspopup="menu" aria-expanded="false">
+                    <i data-lucide="chevrons-up-down"></i>
+                </button>
             </div>
         </div>
     </aside>
 
-    <!-- Main Content -->
-    <main class="main">
+    <div class="sidebar-overlay" id="sidebarOverlay" hidden></div>
 
-        <header class="topbar">
-            <div>
-                <h2>Dashboard</h2>
-                <p>Your intelligent document workspace</p>
+    <!-- ===================== MAIN ===================== -->
+    <div class="main-wrapper">
+
+        <!-- Top navigation -->
+        <header class="topbar" id="topbar">
+            <div class="topbar-left">
+                <button class="icon-btn sidebar-toggle" id="sidebarToggle" type="button" aria-label="Open sidebar" aria-controls="sidebar" aria-expanded="false">
+                    <i data-lucide="menu"></i>
+                </button>
+                <div class="topbar-title">
+                    <h2 id="pageTitle">Dashboard</h2>
+                    <p id="pageSubtitle">Your intelligent document workspace</p>
+                </div>
             </div>
-            <button class="upgrade">Upgrade Plan ↗</button>
+
+            <div class="topbar-right">
+                <div class="search-box" role="search">
+                    <i data-lucide="search" aria-hidden="true"></i>
+                    <label for="globalSearch" class="sr-only">Search documents</label>
+                    <input type="search" id="globalSearch" placeholder="Search documents…" autocomplete="off">
+                </div>
+
+                <div class="backend-status" id="backendStatus" role="status" aria-live="polite">
+                    <span class="status-dot" id="backendStatusDot" aria-hidden="true"></span>
+                    <span id="backendStatusText">Backend not connected</span>
+                </div>
+
+                <button class="icon-btn" id="themeToggle" type="button" aria-label="Toggle light and dark theme" aria-pressed="false">
+                    <i data-lucide="moon" class="theme-icon-dark"></i>
+                    <i data-lucide="sun" class="theme-icon-light"></i>
+                </button>
+            </div>
         </header>
 
-        <section class="welcome">
-            <div>
-                <span class="tag">AI POWERED DOCUMENT INTELLIGENCE</span>
-                <h1>Understand your PDFs.<br>
-                <span>Think smarter.</span></h1>
-                <p>Upload documents, ask questions and discover insights instantly.</p>
-            </div>
-            <div class="welcome-icon">✧</div>
-        </section>
+        <main class="main" id="mainContent" tabindex="-1">
 
-        <!-- Upload Section -->
-        <section class="upload-section">
-            <h3>Upload your document</h3>
-            <div class="upload-box" id="dropZone">
-                <div class="upload-icon">↑</div>
-                <h3>Drop your PDF here</h3>
-                <p>or browse files from your computer</p>
+            <!-- ===================== DASHBOARD ===================== -->
+            <section class="page active" id="page-dashboard" data-page-id="dashboard" aria-labelledby="dashboardHeading">
+                <h1 class="sr-only" id="dashboardHeading">Dashboard</h1>
 
-                <input type="file" id="pdfInput" accept=".pdf" hidden>
-                <button onclick="document.getElementById('pdfInput').click()">
-                    Browse PDF
-                </button>
-                <small>PDF files only · Maximum 20 MB</small>
-            </div>
-            <p id="fileStatus"></p>
-        </section>
+                <!-- Welcome -->
+                <section class="welcome" id="welcomeSection" aria-label="Welcome">
+                    <div class="welcome-content">
+                        <span class="tag">AI POWERED DOCUMENT INTELLIGENCE</span>
+                        <h2 class="welcome-title">Understand your PDFs.<br><span>Think smarter.</span></h2>
+                        <p class="welcome-text">Upload documents, ask questions and discover insights instantly.</p>
+                        <div class="welcome-actions">
+                            <button class="btn btn-primary" id="welcomeUploadBtn" type="button">
+                                <i data-lucide="upload"></i><span>Upload PDF</span>
+                            </button>
+                            <button class="btn btn-secondary" id="welcomeChatBtn" type="button" data-page="assistant">
+                                <i data-lucide="message-square-text"></i><span>Ask a question</span>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="welcome-icon" aria-hidden="true"><i data-lucide="brain-circuit"></i></div>
+                </section>
 
-        <!-- Feature Cards -->
-        <section class="features">
-            <h3>Explore AI Features</h3>
+                <!-- Statistics -->
+                <section class="stats" id="statsSection" aria-labelledby="statsHeading">
+                    <h3 class="sr-only" id="statsHeading">Usage statistics</h3>
+                    <div class="stats-grid" id="statsGrid">
+                        <article class="stat-card" id="statCardDocuments">
+                            <div class="stat-icon purple" aria-hidden="true"><i data-lucide="files"></i></div>
+                            <div class="stat-body">
+                                <p class="stat-label">Documents</p>
+                                <p class="stat-value" id="statDocuments">0</p>
+                                <p class="stat-note" id="statDocumentsNote">Uploaded PDFs</p>
+                            </div>
+                        </article>
+                        <article class="stat-card" id="statCardQuestions">
+                            <div class="stat-icon blue" aria-hidden="true"><i data-lucide="message-circle-question"></i></div>
+                            <div class="stat-body">
+                                <p class="stat-label">Questions</p>
+                                <p class="stat-value" id="statQuestions">0</p>
+                                <p class="stat-note" id="statQuestionsNote">Questions asked</p>
+                            </div>
+                        </article>
+                        <article class="stat-card" id="statCardSummaries">
+                            <div class="stat-icon orange" aria-hidden="true"><i data-lucide="file-text"></i></div>
+                            <div class="stat-body">
+                                <p class="stat-label">Summaries</p>
+                                <p class="stat-value" id="statSummaries">0</p>
+                                <p class="stat-note" id="statSummariesNote">Summaries generated</p>
+                            </div>
+                        </article>
+                        <article class="stat-card" id="statCardQuizzes">
+                            <div class="stat-icon green" aria-hidden="true"><i data-lucide="list-checks"></i></div>
+                            <div class="stat-body">
+                                <p class="stat-label">Quizzes</p>
+                                <p class="stat-value" id="statQuizzes">0</p>
+                                <p class="stat-note" id="statQuizzesNote">Quizzes created</p>
+                            </div>
+                        </article>
+                    </div>
+                </section>
 
-            <div class="feature-grid">
-                <div class="feature-card" onclick="openFeature('chat')">
-                    <div class="feature-icon purple">✧</div>
-                    <h4>Ask AI</h4>
-                    <p>Get answers from your PDFs.</p>
-                    <span>Explore →</span>
+                <!-- Upload -->
+                <section class="upload-section" id="uploadSection" aria-labelledby="uploadHeading">
+                    <div class="section-heading">
+                        <h3 id="uploadHeading">Upload your document</h3>
+                    </div>
+
+                    <div class="upload-box" id="dropZone" role="group" aria-labelledby="dropZoneTitle" aria-describedby="dropZoneHint">
+                        <div class="upload-icon" aria-hidden="true"><i data-lucide="cloud-upload"></i></div>
+                        <h3 id="dropZoneTitle">Drop your PDF here</h3>
+                        <p>or browse files from your computer</p>
+
+                        <label for="pdfInput" class="sr-only">Choose a PDF file to upload</label>
+                        <input type="file" id="pdfInput" name="pdf" accept=".pdf,application/pdf" hidden>
+                        <button class="btn btn-primary" id="browseBtn" type="button" onclick="document.getElementById('pdfInput').click()">
+                            <i data-lucide="folder-open"></i><span>Browse PDF</span>
+                        </button>
+                        <small id="dropZoneHint">PDF files only · Maximum 20 MB</small>
+                    </div>
+
+                    <div class="upload-progress" id="uploadProgress" hidden>
+                        <div class="progress-info">
+                            <span id="uploadFileName">file.pdf</span>
+                            <span id="uploadPercent">0%</span>
+                        </div>
+                        <div class="progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="uploadProgressBar" aria-label="Upload progress">
+                            <div class="progress-fill" id="uploadProgressFill"></div>
+                        </div>
+                    </div>
+
+                    <p id="fileStatus" class="file-status" role="status" aria-live="polite"></p>
+                </section>
+
+                <!-- Feature cards -->
+                <section class="features" id="featuresSection" aria-labelledby="featuresHeading">
+                    <div class="section-heading">
+                        <h3 id="featuresHeading">Explore AI Features</h3>
+                    </div>
+
+                    <div class="feature-grid" id="featureGrid">
+                        <button class="feature-card" id="featureChat" type="button" data-feature="chat" onclick="openFeature('chat')">
+                            <span class="feature-icon purple" aria-hidden="true"><i data-lucide="message-square-text"></i></span>
+                            <h4>Ask AI</h4>
+                            <p>Get answers from your PDFs.</p>
+                            <span class="feature-link">Explore <i data-lucide="arrow-right"></i></span>
+                        </button>
+
+                        <button class="feature-card" id="featureSummary" type="button" data-feature="summary" onclick="openFeature('summary')">
+                            <span class="feature-icon blue" aria-hidden="true"><i data-lucide="file-text"></i></span>
+                            <h4>Smart Summary</h4>
+                            <p>Generate concise document notes.</p>
+                            <span class="feature-link">Explore <i data-lucide="arrow-right"></i></span>
+                        </button>
+
+                        <button class="feature-card" id="featureQuiz" type="button" data-feature="quiz" onclick="openFeature('quiz')">
+                            <span class="feature-icon orange" aria-hidden="true"><i data-lucide="list-checks"></i></span>
+                            <h4>Quiz Generator</h4>
+                            <p>Create MCQs from your PDFs.</p>
+                            <span class="feature-link">Explore <i data-lucide="arrow-right"></i></span>
+                        </button>
+
+                        <button class="feature-card" id="featureCompare" type="button" data-feature="compare" onclick="openFeature('compare')">
+                            <span class="feature-icon green" aria-hidden="true"><i data-lucide="git-compare-arrows"></i></span>
+                            <h4>Compare PDFs</h4>
+                            <p>Find similarities and differences.</p>
+                            <span class="feature-link">Explore <i data-lucide="arrow-right"></i></span>
+                        </button>
+                    </div>
+                </section>
+
+                <!-- Recent documents -->
+                <section class="documents" id="recentDocumentsSection" aria-labelledby="recentDocumentsHeading">
+                    <div class="section-heading">
+                        <h3 id="recentDocumentsHeading">Recent Documents</h3>
+                        <a href="#documents" id="viewAllDocuments" data-page="documents">View all <i data-lucide="arrow-right"></i></a>
+                    </div>
+
+                    <div id="documentList" class="document-list" aria-live="polite">
+                        <div class="empty-state" id="documentEmptyState">
+                            <div class="empty-icon" aria-hidden="true"><i data-lucide="file-search"></i></div>
+                            <h4>No documents yet</h4>
+                            <p>Your uploaded documents will appear here.</p>
+                        </div>
+                    </div>
+                </section>
+            </section>
+
+            <!-- ===================== MY DOCUMENTS ===================== -->
+            <section class="page" id="page-documents" data-page-id="documents" aria-labelledby="documentsHeading" hidden>
+                <div class="page-header">
+                    <div>
+                        <h1 id="documentsHeading">My Documents</h1>
+                        <p>Manage every PDF indexed in your workspace.</p>
+                    </div>
+                    <button class="btn btn-primary" id="documentsUploadBtn" type="button">
+                        <i data-lucide="upload"></i><span>Upload PDF</span>
+                    </button>
                 </div>
 
-                <div class="feature-card" onclick="openFeature('summary')">
-                    <div class="feature-icon blue">▤</div>
-                    <h4>Smart Summary</h4>
-                    <p>Generate concise document notes.</p>
-                    <span>Explore →</span>
+                <div class="toolbar" id="documentsToolbar">
+                    <div class="search-box">
+                        <i data-lucide="search" aria-hidden="true"></i>
+                        <label for="documentsSearch" class="sr-only">Filter documents by name</label>
+                        <input type="search" id="documentsSearch" placeholder="Filter by name…" autocomplete="off">
+                    </div>
+                    <div class="select-wrap">
+                        <label for="documentsSort" class="sr-only">Sort documents</label>
+                        <select id="documentsSort">
+                            <option value="recent">Most recent</option>
+                            <option value="name">Name (A–Z)</option>
+                            <option value="size">Size</option>
+                        </select>
+                    </div>
+                    <div class="view-toggle" role="group" aria-label="Document view">
+                        <button class="icon-btn active" id="viewGrid" type="button" aria-label="Grid view" aria-pressed="true"><i data-lucide="layout-grid"></i></button>
+                        <button class="icon-btn" id="viewList" type="button" aria-label="List view" aria-pressed="false"><i data-lucide="list"></i></button>
+                    </div>
                 </div>
 
-                <div class="feature-card" onclick="openFeature('quiz')">
-                    <div class="feature-icon orange">✎</div>
-                    <h4>Quiz Generator</h4>
-                    <p>Create MCQs from your PDFs.</p>
-                    <span>Explore →</span>
+                <div id="allDocumentsList" class="document-list document-grid" aria-live="polite">
+                    <div class="empty-state" id="allDocumentsEmptyState">
+                        <div class="empty-icon" aria-hidden="true"><i data-lucide="folder-open"></i></div>
+                        <h4>Your library is empty</h4>
+                        <p>Upload a PDF to start asking questions, summarizing and generating quizzes.</p>
+                        <button class="btn btn-secondary" id="emptyUploadBtn" type="button">
+                            <i data-lucide="upload"></i><span>Upload your first PDF</span>
+                        </button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ===================== AI ASSISTANT ===================== -->
+            <section class="page" id="page-assistant" data-page-id="assistant" aria-labelledby="assistantHeading" hidden>
+                <div class="page-header">
+                    <div>
+                        <h1 id="assistantHeading">AI Assistant</h1>
+                        <p>Ask questions and get answers grounded in your documents.</p>
+                    </div>
+                    <button class="btn btn-secondary" id="assistantNewChatBtn" type="button" onclick="newChat()">
+                        <i data-lucide="plus"></i><span>New Chat</span>
+                    </button>
                 </div>
 
-                <div class="feature-card" onclick="openFeature('compare')">
-                    <div class="feature-icon green">⇄</div>
-                    <h4>Compare PDFs</h4>
-                    <p>Find similarities and differences.</p>
-                    <span>Explore →</span>
+                <div class="chat-layout" id="chatLayout">
+                    <div class="chat-panel" id="chatPanel">
+                        <div class="chat-context" id="chatContext">
+                            <label for="chatDocumentSelect">Document</label>
+                            <div class="select-wrap">
+                                <select id="chatDocumentSelect" name="chatDocument">
+                                    <option value="">Select a document…</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="chat-messages" id="chatMessages" role="log" aria-live="polite" aria-label="Conversation">
+                            <div class="empty-state" id="chatEmptyState">
+                                <div class="empty-icon" aria-hidden="true"><i data-lucide="message-square-text"></i></div>
+                                <h4>Start a conversation</h4>
+                                <p>Select a document and ask your first question. Answers will cite the source pages.</p>
+                            </div>
+                        </div>
+
+                        <form class="chat-form" id="chatForm" novalidate>
+                            <label for="chatInput" class="sr-only">Ask a question about your document</label>
+                            <textarea id="chatInput" name="question" rows="1" placeholder="Ask anything about your document…" maxlength="2000"></textarea>
+                            <button class="btn btn-primary send-btn" id="chatSendBtn" type="submit" aria-label="Send question">
+                                <i data-lucide="send-horizontal"></i>
+                            </button>
+                        </form>
+                        <p class="chat-hint" id="chatHint">DocuMind answers using retrieved passages from your PDF. Verify important information.</p>
+                    </div>
+
+                    <aside class="sources-panel" id="sourcesPanel" aria-labelledby="sourcesHeading">
+                        <h3 id="sourcesHeading">Sources</h3>
+                        <div id="sourcesList" class="sources-list" aria-live="polite">
+                            <div class="empty-state compact" id="sourcesEmptyState">
+                                <div class="empty-icon" aria-hidden="true"><i data-lucide="quote"></i></div>
+                                <p>Retrieved passages will appear here after you ask a question.</p>
+                            </div>
+                        </div>
+                    </aside>
                 </div>
-            </div>
-        </section>
+            </section>
 
-        <!-- Recent Documents -->
-        <section class="documents">
-            <div class="section-heading">
-                <h3>Recent Documents</h3>
-                <a>View all →</a>
-            </div>
-
-            <div id="documentList" class="document-list">
-                <div class="empty-state">
-                    Your uploaded documents will appear here.
+            <!-- ===================== SMART SUMMARIZER ===================== -->
+            <section class="page" id="page-summarizer" data-page-id="summarizer" aria-labelledby="summarizerHeading" hidden>
+                <div class="page-header">
+                    <div>
+                        <h1 id="summarizerHeading">Smart Summarizer</h1>
+                        <p>Turn long PDFs into concise, structured notes.</p>
+                    </div>
                 </div>
-            </div>
-        </section>
 
-    </main>
+                <div class="tool-layout" id="summarizerLayout">
+                    <form class="tool-form card" id="summaryForm" novalidate>
+                        <div class="form-group">
+                            <label for="summaryDocumentSelect">Document</label>
+                            <div class="select-wrap">
+                                <select id="summaryDocumentSelect" name="document" required>
+                                    <option value="">Select a document…</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="summaryLength">Summary length</label>
+                            <div class="select-wrap">
+                                <select id="summaryLength" name="length">
+                                    <option value="short">Short</option>
+                                    <option value="medium" selected>Medium</option>
+                                    <option value="long">Detailed</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="summaryFormat">Format</label>
+                            <div class="select-wrap">
+                                <select id="summaryFormat" name="format">
+                                    <option value="bullets" selected>Bullet points</option>
+                                    <option value="paragraph">Paragraphs</option>
+                                    <option value="notes">Study notes</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <button class="btn btn-primary" id="generateSummaryBtn" type="submit">
+                            <i data-lucide="wand-sparkles"></i><span>Generate Summary</span>
+                        </button>
+                    </form>
+
+                    <div class="tool-output card" id="summaryOutputCard" aria-live="polite">
+                        <div class="output-header">
+                            <h3>Summary</h3>
+                            <div class="output-actions">
+                                <button class="icon-btn" id="copySummaryBtn" type="button" aria-label="Copy summary" disabled><i data-lucide="copy"></i></button>
+                                <button class="icon-btn" id="downloadSummaryBtn" type="button" aria-label="Download summary" disabled><i data-lucide="download"></i></button>
+                            </div>
+                        </div>
+                        <div id="summaryOutput" class="output-body">
+                            <div class="empty-state" id="summaryEmptyState">
+                                <div class="empty-icon" aria-hidden="true"><i data-lucide="file-text"></i></div>
+                                <h4>No summary yet</h4>
+                                <p>Choose a document and generate a summary to see it here.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ===================== QUIZ GENERATOR ===================== -->
+            <section class="page" id="page-quiz" data-page-id="quiz" aria-labelledby="quizHeading" hidden>
+                <div class="page-header">
+                    <div>
+                        <h1 id="quizHeading">Quiz Generator</h1>
+                        <p>Create multiple-choice questions to test your understanding.</p>
+                    </div>
+                </div>
+
+                <div class="tool-layout" id="quizLayout">
+                    <form class="tool-form card" id="quizForm" novalidate>
+                        <div class="form-group">
+                            <label for="quizDocumentSelect">Document</label>
+                            <div class="select-wrap">
+                                <select id="quizDocumentSelect" name="document" required>
+                                    <option value="">Select a document…</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="quizCount">Number of questions</label>
+                            <div class="select-wrap">
+                                <select id="quizCount" name="count">
+                                    <option value="5" selected>5 questions</option>
+                                    <option value="10">10 questions</option>
+                                    <option value="15">15 questions</option>
+                                    <option value="20">20 questions</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="quizDifficulty">Difficulty</label>
+                            <div class="select-wrap">
+                                <select id="quizDifficulty" name="difficulty">
+                                    <option value="easy">Easy</option>
+                                    <option value="medium" selected>Medium</option>
+                                    <option value="hard">Hard</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <button class="btn btn-primary" id="generateQuizBtn" type="submit">
+                            <i data-lucide="wand-sparkles"></i><span>Generate Quiz</span>
+                        </button>
+                    </form>
+
+                    <div class="tool-output card" id="quizOutputCard" aria-live="polite">
+                        <div class="output-header">
+                            <h3>Quiz</h3>
+                            <div class="output-actions">
+                                <span class="quiz-score" id="quizScore" hidden>Score: 0 / 0</span>
+                                <button class="btn btn-secondary btn-sm" id="resetQuizBtn" type="button" disabled>
+                                    <i data-lucide="rotate-ccw"></i><span>Reset</span>
+                                </button>
+                            </div>
+                        </div>
+                        <div id="quizOutput" class="output-body">
+                            <div class="empty-state" id="quizEmptyState">
+                                <div class="empty-icon" aria-hidden="true"><i data-lucide="list-checks"></i></div>
+                                <h4>No quiz yet</h4>
+                                <p>Generate a quiz from one of your documents to start practising.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ===================== COMPARE PDFS ===================== -->
+            <section class="page" id="page-compare" data-page-id="compare" aria-labelledby="compareHeading" hidden>
+                <div class="page-header">
+                    <div>
+                        <h1 id="compareHeading">Compare PDFs</h1>
+                        <p>Find similarities and differences between two documents.</p>
+                    </div>
+                </div>
+
+                <form class="compare-form card" id="compareForm" novalidate>
+                    <div class="compare-selects">
+                        <div class="form-group">
+                            <label for="compareDocumentA">First document</label>
+                            <div class="select-wrap">
+                                <select id="compareDocumentA" name="documentA" required>
+                                    <option value="">Select a document…</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="compare-divider" aria-hidden="true"><i data-lucide="arrow-left-right"></i></div>
+
+                        <div class="form-group">
+                            <label for="compareDocumentB">Second document</label>
+                            <div class="select-wrap">
+                                <select id="compareDocumentB" name="documentB" required>
+                                    <option value="">Select a document…</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="compareFocus">Focus (optional)</label>
+                        <input type="text" id="compareFocus" name="focus" placeholder="e.g. methodology, conclusions, key definitions">
+                    </div>
+
+                    <button class="btn btn-primary" id="compareBtn" type="submit">
+                        <i data-lucide="git-compare-arrows"></i><span>Compare Documents</span>
+                    </button>
+                </form>
+
+                <div class="tool-output card" id="compareOutputCard" aria-live="polite">
+                    <div class="output-header">
+                        <h3>Comparison result</h3>
+                    </div>
+                    <div id="compareOutput" class="output-body">
+                        <div class="empty-state" id="compareEmptyState">
+                            <div class="empty-icon" aria-hidden="true"><i data-lucide="git-compare-arrows"></i></div>
+                            <h4>No comparison yet</h4>
+                            <p>Select two documents to see their similarities and differences.</p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ===================== SETTINGS ===================== -->
+            <section class="page" id="page-settings" data-page-id="settings" aria-labelledby="settingsHeading" hidden>
+                <div class="page-header">
+                    <div>
+                        <h1 id="settingsHeading">Settings</h1>
+                        <p>Customize your workspace and configure the backend connection.</p>
+                    </div>
+                </div>
+
+                <form class="settings-form" id="settingsForm" novalidate>
+
+                    <fieldset class="card settings-group" id="settingsProfile">
+                        <legend>Profile</legend>
+                        <div class="form-group">
+                            <label for="settingsName">Display name</label>
+                            <input type="text" id="settingsName" name="name" placeholder="Your name" autocomplete="name">
+                        </div>
+                    </fieldset>
+
+                    <fieldset class="card settings-group" id="settingsAppearance">
+                        <legend>Appearance</legend>
+                        <div class="form-group">
+                            <label for="settingsTheme">Theme</label>
+                            <div class="select-wrap">
+                                <select id="settingsTheme" name="theme">
+                                    <option value="system">System</option>
+                                    <option value="light">Light</option>
+                                    <option value="dark">Dark</option>
+                                </select>
+                            </div>
+                        </div>
+                    </fieldset>
+
+                    <fieldset class="card settings-group" id="settingsBackend">
+                        <legend>Backend &amp; RAG pipeline</legend>
+
+                        <div class="form-group">
+                            <label for="settingsApiUrl">API base URL</label>
+                            <input type="url" id="settingsApiUrl" name="apiUrl" placeholder="http://localhost:8000" inputmode="url">
+                            <small>FastAPI server that handles uploads and RAG queries.</small>
+                        </div>
+
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="settingsChunkSize">Chunk size</label>
+                                <input type="number" id="settingsChunkSize" name="chunkSize" min="100" max="4000" step="50" placeholder="1000">
+                            </div>
+                            <div class="form-group">
+                                <label for="settingsTopK">Retrieved passages (top-k)</label>
+                                <input type="number" id="settingsTopK" name="topK" min="1" max="20" placeholder="4">
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label class="toggle" for="settingsShowSources">
+                                <input type="checkbox" id="settingsShowSources" name="showSources" checked>
+                                <span class="toggle-label">Show source passages with answers</span>
+                            </label>
+                        </div>
+
+                        <button class="btn btn-secondary" id="testConnectionBtn" type="button">
+                            <i data-lucide="plug-zap"></i><span>Test connection</span>
+                        </button>
+                    </fieldset>
+
+                    <fieldset class="card settings-group" id="settingsData">
+                        <legend>Data</legend>
+                        <p class="settings-note">Clear locally stored chats, preferences and cached document metadata.</p>
+                        <button class="btn btn-danger" id="clearDataBtn" type="button">
+                            <i data-lucide="trash-2"></i><span>Clear local data</span>
+                        </button>
+                    </fieldset>
+
+                    <div class="form-actions">
+                        <button class="btn btn-primary" id="saveSettingsBtn" type="submit">
+                            <i data-lucide="check"></i><span>Save settings</span>
+                        </button>
+                    </div>
+                </form>
+            </section>
+
+        </main>
+    </div>
 </div>
+
+<!-- Toast notifications -->
+<div class="toast-container" id="toastContainer" role="status" aria-live="polite" aria-atomic="true"></div>
 
 <script src="script.js"></script>
 </body>
