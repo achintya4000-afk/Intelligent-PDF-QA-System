@@ -18,7 +18,8 @@
    POST /api/compare            -> {similarities:[], differences:[]}
    DELETE /api/documents/{id}   -> success response
 
-   No PDF, API key, or AI result is stored in localStorage.
+   PDFs and API keys are not stored in localStorage. Chat text and settings
+   are stored locally in this browser; use a backend database for account sync.
    ========================================================================== */
 
 (() => {
@@ -60,6 +61,9 @@
         settings: ['Settings', 'Customize your DocuMind workspace']
     };
 
+    // Own-property check: a hash such as #constructor or #toString must not be treated as a page.
+    const isPage = page => Object.prototype.hasOwnProperty.call(PAGE_META, page);
+
     const $ = (selector, root = document) => root.querySelector(selector);
     const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selector));
     const byId = id => document.getElementById(id);
@@ -68,7 +72,7 @@
         settings: loadJSON(STORAGE_KEYS.settings, DEFAULT_SETTINGS),
         documents: [],
         chats: loadJSON(STORAGE_KEYS.chats, []),
-        activeChatId: localStorage.getItem(STORAGE_KEYS.activeChat) || null,
+        activeChatId: safeStorageGet(STORAGE_KEYS.activeChat),
         counters: loadJSON(STORAGE_KEYS.counters, {
             questions: 0,
             summaries: 0,
@@ -80,27 +84,75 @@
         documentView: 'grid',
         searchTerm: '',
         healthChecked: false,
+        isSendingQuestion: false,
+        dragDepth: 0,
+        lastDocumentLoadFailed: false,
         requestControllers: new Set()
     };
 
-    state.settings = { ...DEFAULT_SETTINGS, ...state.settings };
+    state.settings = {
+        ...DEFAULT_SETTINGS,
+        ...(state.settings && typeof state.settings === 'object' && !Array.isArray(state.settings)
+            ? state.settings
+            : {})
+    };
+    state.settings.theme = ['light', 'dark', 'system'].includes(state.settings.theme)
+        ? state.settings.theme
+        : DEFAULT_SETTINGS.theme;
+    state.settings.name = safeText(state.settings.name, DEFAULT_SETTINGS.name);
+    state.settings.apiUrl = safeText(state.settings.apiUrl, DEFAULT_SETTINGS.apiUrl);
+    state.settings.topK = Math.min(20, Math.max(1, Number(state.settings.topK) || DEFAULT_SETTINGS.topK));
+    state.settings.chunkSize = Math.min(4000, Math.max(100, Number(state.settings.chunkSize) || DEFAULT_SETTINGS.chunkSize));
+    state.settings.showSources = state.settings.showSources !== false;
 
-    if (!Array.isArray(state.chats)) {
-        state.chats = [];
+    // Ignore malformed entries left by interrupted writes or older app versions.
+    state.chats = Array.isArray(state.chats)
+        ? state.chats.filter(chat => chat && typeof chat === 'object' && chat.id != null)
+            .map(chat => ({
+                id: String(chat.id),
+                title: safeText(chat.title, 'New conversation'),
+                documentId: chat.documentId == null ? '' : String(chat.documentId),
+                messages: Array.isArray(chat.messages)
+                    ? chat.messages.filter(message => message && typeof message === 'object' && ['user', 'assistant'].includes(message.role))
+                        .slice(-40)
+                        .map(message => ({
+                            role: message.role,
+                            content: String(message.content ?? ''),
+                            ...(Array.isArray(message.sources) ? { sources: message.sources } : {}),
+                            ...(message.error ? { error: true } : {})
+                        }))
+                    : [],
+                updatedAt: chat.updatedAt || new Date().toISOString()
+            }))
+        : [];
+    state.chats = state.chats.slice(0, 30);
+    if (!state.chats.some(chat => chat.id === state.activeChatId)) {
+        state.activeChatId = state.chats[0]?.id || null;
     }
 
-    if (!state.counters || typeof state.counters !== 'object') {
+    if (!state.counters || typeof state.counters !== 'object' || Array.isArray(state.counters)) {
+        state.counters = { questions: 0, summaries: 0, quizzes: 0 };
+    } else {
         state.counters = {
-            questions: 0,
-            summaries: 0,
-            quizzes: 0
+            questions: Math.max(0, Number(state.counters.questions) || 0),
+            summaries: Math.max(0, Number(state.counters.summaries) || 0),
+            quizzes: Math.max(0, Number(state.counters.quizzes) || 0)
         };
+    }
+
+    function safeStorageGet(key) {
+        try {
+            return localStorage.getItem(key) || null;
+        } catch (error) {
+            console.warn(`DocuMind: could not read ${key}`, error);
+            return null;
+        }
     }
 
     function loadJSON(key, fallback) {
         try {
             const value = localStorage.getItem(key);
-            return value ? JSON.parse(value) : { ...fallback };
+            return value ? JSON.parse(value) : (Array.isArray(fallback) ? [...fallback] : { ...fallback });
         } catch (error) {
             console.warn(`DocuMind: could not read ${key}`, error);
             return Array.isArray(fallback) ? [] : { ...fallback };
@@ -186,7 +238,7 @@
                 source.created_at ||
                 source.upload_date ||
                 null,
-            status: safeText(source.status, 'Indexed'),
+            status: safeText(source.status, 'processing'),
             pages: source.pages ?? source.page_count ?? null
         };
     }
@@ -197,6 +249,29 @@
         ).trim().replace(/\/+$/, '');
 
         return `${base}${path.startsWith('/') ? path : `/${path}`}`;
+    }
+
+    function formatApiError(payload, status) {
+        const raw = typeof payload === 'string'
+            ? payload
+            : payload?.detail ?? payload?.message ?? payload?.error;
+
+        if (Array.isArray(raw)) {
+            return raw.map(item => {
+                if (typeof item === 'string') return item;
+                const location = Array.isArray(item?.loc)
+                    ? item.loc.join(' → ')
+                    : '';
+                const message = item?.msg || item?.message || 'Invalid request';
+                return location ? `${location}: ${message}` : message;
+            }).join('; ');
+        }
+
+        if (raw && typeof raw === 'object') {
+            return raw.message || raw.msg || JSON.stringify(raw);
+        }
+
+        return raw ? String(raw) : `Request failed (${status})`;
     }
 
     async function apiRequest(path, options = {}) {
@@ -234,19 +309,19 @@
                 : await response.text();
 
             if (!response.ok) {
-                const detail = typeof payload === 'string'
-                    ? payload
-                    : payload?.detail ||
-                      payload?.message ||
-                      payload?.error;
-
-                throw new Error(
-                    detail || `Request failed (${response.status})`
-                );
+                throw new Error(formatApiError(payload, response.status));
             }
 
             return payload;
 
+        } catch (error) {
+            if (error.name === 'AbortError') {
+                throw new Error('The request timed out or was cancelled. Please try again.');
+            }
+            if (error instanceof TypeError) {
+                throw new Error('Cannot reach the backend. Check that FastAPI is running and the API URL is correct.');
+            }
+            throw error;
         } finally {
             window.clearTimeout(timeout);
             state.requestControllers.delete(controller);
@@ -279,6 +354,9 @@
     function setButtonLoading(button, loading, label) {
         if (!button) return;
 
+        if (loading && !button.dataset.originalAriaLabel) {
+            button.dataset.originalAriaLabel = button.getAttribute('aria-label') || button.textContent.trim();
+        }
         button.classList.toggle('loading', loading);
         button.disabled = loading;
 
@@ -305,9 +383,13 @@
     /* ----------------------------- Navigation ---------------------------- */
 
     function navigate(page, updateHash = true) {
-        if (!PAGE_META[page]) {
+        if (!isPage(page)) {
             page = 'dashboard';
         }
+
+        // Single source of truth for CSS-driven visibility (see style.css).
+        // The inline script in <head> sets the same attribute before first paint.
+        document.documentElement.dataset.route = page;
 
         $$('[data-page-id]').forEach(section => {
             const active = section.dataset.pageId === page;
@@ -337,14 +419,12 @@
             updateHash &&
             location.hash !== `#${page}`
         ) {
-            history.replaceState(null, '', `#${page}`);
+            history.pushState({ page }, '', `#${page}`);
         }
 
         closeSidebar();
 
-        if (page === 'assistant') {
-            byId('chatInput')?.focus({ preventScroll: true });
-        }
+        document.title = `${title} | DocuMind`;
 
         if (page === 'documents') {
             renderDocuments();
@@ -359,11 +439,11 @@
 
     function handleRoute() {
         const page = location.hash.replace('#', '');
-
-        navigate(
-            PAGE_META[page] ? page : 'dashboard',
-            false
-        );
+        if (page === 'mainContent') {
+            byId('mainContent')?.focus();
+            return;
+        }
+        navigate(isPage(page) ? page : 'dashboard', false);
     }
 
 
@@ -578,10 +658,7 @@
             }
 
             if (xhr.status < 200 || xhr.status >= 300) {
-                const message =
-                    payload.detail ||
-                    payload.message ||
-                    `Upload failed (${xhr.status}).`;
+                const message = formatApiError(payload, xhr.status);
 
                 zone.classList.add('error');
                 setFileStatus(message, 'error');
@@ -609,17 +686,17 @@
                 );
             } else {
                 setUploadProgress(100, file.name);
-
-                zone.classList.add('success');
-
-                setFileStatus(
-                    `${doc.name} uploaded and processed successfully.`,
-                    'success'
-                );
-
-                toast('PDF uploaded successfully.', 'success');
+                setFileStatus(`${doc.name} uploaded. Waiting for indexing to finish…`);
+                toast('PDF uploaded. Checking indexing status…', 'info');
 
                 await loadDocuments(false);
+                let refreshed = state.documents.find(item => item.id === doc.id) || doc;
+                for (let attempt = 0; attempt < 5 && !isDocumentReady(refreshed); attempt += 1) {
+                    await new Promise(resolve => window.setTimeout(resolve, 2000));
+                    await loadDocuments(false);
+                    refreshed = state.documents.find(item => item.id === doc.id) || refreshed;
+                }
+                setFileStatus(isDocumentReady(refreshed) ? `${refreshed.name} is ready to use.` : `${refreshed.name} was uploaded and is still processing.`, isDocumentReady(refreshed) ? 'success' : '');
                 navigate('documents');
             }
 
@@ -659,6 +736,7 @@
         const formData = new FormData();
 
         formData.append('file', file, file.name);
+        formData.append('chunk_size', String(state.settings.chunkSize));
 
         xhr.send(formData);
     }
@@ -678,6 +756,11 @@
         `;
     }
 
+    function isDocumentReady(doc) {
+        const status = String(doc.status || '').toLowerCase();
+        return ['ready', 'indexed', 'complete', 'completed', 'processed', 'success'].includes(status);
+    }
+
     function documentMarkup(doc, compact = false) {
         const id = escapeHTML(doc.id);
         const name = escapeHTML(doc.name);
@@ -691,7 +774,7 @@
         return `
             <article class="document-item" data-document-id="${id}">
                 <div class="document-icon" aria-hidden="true">
-                    <i data-lucide="file-pdf"></i>
+                    <i data-lucide="file-text"></i>
                 </div>
 
                 <div class="document-info">
@@ -764,6 +847,7 @@
 
         recent.innerHTML = state.documents.length
             ? [...state.documents]
+                .sort((a, b) => new Date(b.uploadedAt || 0) - new Date(a.uploadedAt || 0))
                 .slice(0, 5)
                 .map(doc => documentMarkup(doc, true))
                 .join('')
@@ -834,8 +918,8 @@
 
             select.innerHTML = first +
                 state.documents.map(doc => `
-                    <option value="${escapeHTML(doc.id)}">
-                        ${escapeHTML(doc.name)}
+                    <option value="${escapeHTML(doc.id)}" ${isDocumentReady(doc) ? '' : 'disabled'}>
+                        ${escapeHTML(doc.name)}${isDocumentReady(doc) ? '' : ` (${escapeHTML(doc.status)})`}
                     </option>
                 `).join('');
 
@@ -862,6 +946,7 @@
             state.documents = list
                 .map(normaliseDocument)
                 .filter(doc => doc.id);
+            state.lastDocumentLoadFailed = false;
 
             renderDocuments();
 
@@ -873,7 +958,8 @@
             }
 
         } catch (error) {
-            state.documents = [];
+            state.lastDocumentLoadFailed = true;
+            // Keep the last successful list instead of replacing it with an empty library.
             renderDocuments();
 
             if (showMessage) {
@@ -926,6 +1012,7 @@
     }
 
     function createChat() {
+        // Every explicit New Chat action creates a distinct conversation.
         const chat = {
             id: makeId(),
             title: 'New conversation',
@@ -951,21 +1038,42 @@
         ) || null;
     }
 
+    function selectChat(id) {
+        // Resolve the clicked row by its own ID; never fall back to another chat.
+        const selected = state.chats.find(chat => chat.id === id);
+        if (!selected) {
+            toast('This conversation could not be found. Refresh the page and try again.', 'error');
+            return;
+        }
+
+        state.activeChatId = selected.id;
+        persistChats();
+        renderActiveChat();
+        navigate('assistant');
+    }
+
     function persistChats() {
+        // Keep browser storage bounded; durable account history belongs in the backend database.
+        state.chats = state.chats.slice(0, 30).map(chat => ({
+            ...chat,
+            messages: (Array.isArray(chat.messages) ? chat.messages : []).slice(-40)
+        }));
+        if (!state.chats.some(chat => chat.id === state.activeChatId)) {
+            state.activeChatId = state.chats[0]?.id || null;
+        }
         saveJSON(STORAGE_KEYS.chats, state.chats);
 
         if (state.activeChatId) {
-            localStorage.setItem(
-                STORAGE_KEYS.activeChat,
-                state.activeChatId
-            );
+            try { localStorage.setItem(STORAGE_KEYS.activeChat, state.activeChatId); }
+            catch (error) { console.warn('Could not save active chat selection.', error); }
         } else {
-            localStorage.removeItem(STORAGE_KEYS.activeChat);
+            try { localStorage.removeItem(STORAGE_KEYS.activeChat); } catch (_) { /* storage may be disabled */ }
         }
     }
 
     function renderChatHistory() {
         const list = byId('chatHistory');
+        if (!list) return;
 
         if (!state.chats.length) {
             list.innerHTML = `
@@ -977,7 +1085,7 @@
         }
 
         list.innerHTML = state.chats.slice(0, 30).map(chat => `
-            <li>
+            <li class="chat-history-row">
                 <button
                     type="button"
                     class="chat-history-item ${
@@ -990,10 +1098,85 @@
                     <i data-lucide="message-square"></i>
                     <span>${escapeHTML(chat.title)}</span>
                 </button>
+                <button
+                    type="button"
+                    class="chat-history-delete"
+                    data-action="delete-chat"
+                    data-id="${escapeHTML(chat.id)}"
+                    aria-label="Delete conversation: ${escapeHTML(chat.title)}"
+                    title="Delete conversation"
+                >
+                    <i data-lucide="trash-2" aria-hidden="true"></i>
+                </button>
             </li>
         `).join('');
 
         refreshIcons();
+    }
+
+    function deleteChat(id) {
+        const chat = state.chats.find(item => item.id === id);
+        if (!chat) return;
+
+        const confirmed = window.confirm(
+            `Delete "${chat.title || 'New conversation'}"? This chat history cannot be recovered.`
+        );
+        if (!confirmed) return;
+
+        state.chats = state.chats.filter(item => item.id !== id);
+
+        if (state.activeChatId === id) {
+            state.activeChatId = state.chats[0]?.id || null;
+        }
+
+        persistChats();
+        renderChatHistory();
+        renderActiveChat();
+        toast('Conversation deleted.', 'success');
+    }
+
+    function clearChatHistory() {
+        if (!state.chats.length) {
+            toast('There is no chat history to delete.', 'info');
+            return;
+        }
+
+        const confirmed = window.confirm(
+            'Delete all chat history? This will permanently remove all saved conversations from this browser. Uploaded PDFs and settings will not be affected.'
+        );
+        if (!confirmed) return;
+
+        state.chats = [];
+        state.activeChatId = null;
+        persistChats();
+        renderChatHistory();
+        renderActiveChat();
+        toast('All chat history deleted.', 'success');
+    }
+
+    function renderSafeMarkdown(target, source) {
+        // Small, dependency-free Markdown subset. All raw HTML is escaped first.
+        const escaped = escapeHTML(source || '');
+        const blocks = escaped.split(/\n{2,}/).map(block => {
+            const lines = block.split('\n');
+            const heading = block.match(/^(#{1,3})\s+(.+)$/);
+            if (heading) return `<h${heading[1].length}>${formatInlineMarkdown(heading[2])}</h${heading[1].length}>`;
+            if (lines.every(line => /^[-*]\s+/.test(line))) {
+                return `<ul>${lines.map(line => `<li>${formatInlineMarkdown(line.replace(/^[-*]\s+/, ''))}</li>`).join('')}</ul>`;
+            }
+            if (lines.every(line => /^\d+\.\s+/.test(line))) {
+                return `<ol>${lines.map(line => `<li>${formatInlineMarkdown(line.replace(/^\d+\.\s+/, ''))}</li>`).join('')}</ol>`;
+            }
+            return `<p>${lines.map(formatInlineMarkdown).join('<br>')}</p>`;
+        });
+        target.innerHTML = blocks.join('');
+    }
+
+    function formatInlineMarkdown(text) {
+        return text
+            .replace(/`([^`]+)`/g, '<code>$1</code>')
+            .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+            .replace(/\*([^*]+)\*/g, '<em>$1</em>');
     }
 
     function renderMessage(message) {
@@ -1015,10 +1198,10 @@
         const content = document.createElement('div');
         content.className = 'message-content';
 
-        const paragraph = document.createElement('p');
-        paragraph.textContent = message.content || '';
-
-        content.appendChild(paragraph);
+        const body = document.createElement('div');
+        body.className = 'message-body';
+        renderSafeMarkdown(body, message.content || '');
+        content.appendChild(body);
 
         if (
             Array.isArray(message.sources) &&
@@ -1066,15 +1249,19 @@
             messages.scrollTop = messages.scrollHeight;
         }
 
-        if (
-            chat?.documentId &&
-            state.documents.some(doc => doc.id === chat.documentId)
-        ) {
-            byId('chatDocumentSelect').value = chat.documentId;
+        // Each conversation owns its document selection. Do not leave the
+        // previous chat's document selected when the newly opened chat has none.
+        const documentSelect = byId('chatDocumentSelect');
+        if (documentSelect) {
+            const selectedDocumentId = chat?.documentId || '';
+            documentSelect.value = state.documents.some(
+                doc => doc.id === selectedDocumentId
+            ) ? selectedDocumentId : '';
         }
 
         renderChatHistory();
-        renderSources([]);
+        const lastAssistant = [...(chat?.messages || [])].reverse().find(message => message.role === 'assistant');
+        renderSources(lastAssistant?.sources || []);
         refreshIcons();
     }
 
@@ -1171,7 +1358,7 @@
         const question = input.value.trim();
         const documentId = byId('chatDocumentSelect').value;
 
-        if (!question) return;
+        if (state.isSendingQuestion || !question) return;
 
         if (!documentId) {
             toast(
@@ -1180,6 +1367,12 @@
             );
 
             byId('chatDocumentSelect').focus();
+            return;
+        }
+
+        const selectedDoc = state.documents.find(doc => doc.id === documentId);
+        if (selectedDoc && !isDocumentReady(selectedDoc)) {
+            toast('This PDF is still processing. Please wait until indexing is complete.', 'warning');
             return;
         }
 
@@ -1198,6 +1391,7 @@
             state.activeChatId = chat.id;
         }
 
+        const requestChatId = chat.id;
         chat.documentId = documentId;
 
         if (!chat.messages.length) {
@@ -1211,6 +1405,7 @@
 
         chat.updatedAt = new Date().toISOString();
 
+        state.isSendingQuestion = true;
         input.value = '';
         input.style.height = 'auto';
 
@@ -1230,6 +1425,8 @@
                     method: 'POST',
                     body: JSON.stringify({
                         document_id: documentId,
+                        conversation_id: chat.id,
+                        history: chat.messages.slice(0, -1).slice(-8).map(message => ({ role: message.role, content: message.content })),
                         question,
                         top_k: Number(state.settings.topK) || 4,
                         show_sources: Boolean(state.settings.showSources)
@@ -1260,7 +1457,7 @@
                 sources
             });
 
-            renderSources(sources);
+            if (state.activeChatId === requestChatId) renderSources(sources);
 
             state.counters.questions += 1;
 
@@ -1278,10 +1475,11 @@
                 error: true
             });
 
-            renderSources([]);
+            if (state.activeChatId === requestChatId) renderSources([]);
 
         } finally {
-            byId('typingMessage')?.remove();
+            state.isSendingQuestion = false;
+            if (state.activeChatId === requestChatId) byId('typingMessage')?.remove();
 
             setButtonLoading(
                 byId('chatSendBtn'),
@@ -1290,11 +1488,9 @@
             );
 
             persistChats();
-            renderActiveChat();
-
-            renderSources(
-                chat.messages.at(-1)?.sources || []
-            );
+            if (state.activeChatId === requestChatId) {
+                renderActiveChat();
+            }
         }
     }
 
@@ -1374,7 +1570,7 @@
             const content = document.createElement('div');
 
             content.className = 'summary-content';
-            content.textContent = latestSummary;
+            renderSafeMarkdown(content, latestSummary);
 
             output.appendChild(content);
 
@@ -1464,7 +1660,8 @@
         anchor.click();
         anchor.remove();
 
-        URL.revokeObjectURL(url);
+        // Allow the browser to start the download before releasing the object URL.
+        window.setTimeout(() => URL.revokeObjectURL(url), 1000);
     }
 
     /* ----------------------------- Quiz flow ------------------------------- */
@@ -1901,9 +2098,7 @@
             state.settings.name || 'My Account';
 
         byId('userAvatar').textContent =
-            (state.settings.name || 'A')
-                .trim()[0]
-                .toUpperCase();
+            ((state.settings.name || 'A').trim()[0] || 'A').toUpperCase();
     }
 
     function saveSettings(event) {
@@ -1977,7 +2172,7 @@
                 byId('settingsShowSources').checked
         };
 
-        saveJSON(
+        const settingsSaved = saveJSON(
             STORAGE_KEYS.settings,
             state.settings
         );
@@ -1985,7 +2180,12 @@
         fillSettings();
         applyTheme(state.settings.theme);
 
-        toast('Settings saved.', 'success');
+        toast(
+            settingsSaved
+                ? 'Settings saved.'
+                : 'Settings applied for this session, but could not be saved in browser storage.',
+            settingsSaved ? 'success' : 'warning'
+        );
 
         checkBackend();
     }
@@ -2049,10 +2249,16 @@
             quizzes: 0
         };
 
-        saveJSON(STORAGE_KEYS.chats, []);
-        saveJSON(STORAGE_KEYS.counters, state.counters);
+        const chatsSaved = saveJSON(STORAGE_KEYS.chats, []);
+        const countersSaved = saveJSON(STORAGE_KEYS.counters, state.counters);
 
-        localStorage.removeItem(STORAGE_KEYS.activeChat);
+        let activeChatCleared = true;
+        try {
+            localStorage.removeItem(STORAGE_KEYS.activeChat);
+        } catch (error) {
+            activeChatCleared = false;
+            console.warn('Could not clear active chat selection.', error);
+        }
 
         // Keep API URL and theme so the user does not lose setup.
         state.settings = {
@@ -2061,7 +2267,7 @@
             theme: state.settings.theme
         };
 
-        saveJSON(
+        const settingsSaved = saveJSON(
             STORAGE_KEYS.settings,
             state.settings
         );
@@ -2071,9 +2277,12 @@
         renderActiveChat();
         updateStats();
 
+        const dataSaved = chatsSaved && countersSaved && activeChatCleared && settingsSaved;
         toast(
-            'Local chats and usage data cleared.',
-            'success'
+            dataSaved
+                ? 'Local chats and usage data cleared.'
+                : 'Local data was cleared for this session, but browser storage could not save every change. Previous data may return after refresh.',
+            dataSaved ? 'success' : 'warning'
         );
     }
 
@@ -2100,7 +2309,7 @@
     /* ------------------------------ Event wiring --------------------------- */
 
     function bindEvents() {
-        // SPA-style navigation and existing inline HTML handlers.
+        // Centralised event delegation for navigation and actions.
 
         document.addEventListener('click', event => {
             const pageLink = event.target.closest('[data-page]');
@@ -2108,6 +2317,12 @@
             if (pageLink) {
                 event.preventDefault();
                 navigate(pageLink.dataset.page);
+                return;
+            }
+
+            const feature = event.target.closest('[data-feature]');
+            if (feature) {
+                openFeature(feature.dataset.feature);
                 return;
             }
 
@@ -2122,20 +2337,43 @@
                     byId('pdfInput').click();
                     break;
 
-                case 'ask':
-                    byId('chatDocumentSelect').value = id;
+                case 'ask': {
+                    const doc = state.documents.find(item => item.id === id);
+                    if (!doc || !isDocumentReady(doc)) {
+                        toast('This document is not ready yet.', 'warning');
+                        break;
+                    }
+                    let chat = activeChat();
+                    if (!chat || chat.messages.length) {
+                        chat = { id: makeId(), title: `Questions about ${doc.name}`.slice(0, 42), documentId: id, messages: [], updatedAt: new Date().toISOString() };
+                        state.chats.unshift(chat);
+                        state.activeChatId = chat.id;
+                    } else {
+                        chat.documentId = id;
+                    }
+                    persistChats();
                     navigate('assistant');
+                    byId('chatDocumentSelect').value = id;
+                    renderActiveChat();
                     break;
+                }
 
                 case 'delete':
                     deleteDocument(id);
                     break;
 
                 case 'select-chat':
-                    state.activeChatId = id;
-                    persistChats();
-                    renderActiveChat();
-                    navigate('assistant');
+                    event.preventDefault();
+                    event.stopPropagation();
+                    selectChat(id);
+                    break;
+
+                case 'delete-chat':
+                    deleteChat(id);
+                    break;
+
+                case 'clear-chat-history':
+                    clearChatHistory();
                     break;
 
                 case 'quiz-option':
@@ -2208,26 +2446,31 @@
 
         const dropZone = byId('dropZone');
 
-        ['dragenter', 'dragover'].forEach(type => {
-            dropZone.addEventListener(type, event => {
-                event.preventDefault();
-                dropZone.classList.add('drag-over');
-            });
-        });
-
-        ['dragleave', 'drop'].forEach(type => {
-            dropZone.addEventListener(type, event => {
-                event.preventDefault();
-                dropZone.classList.remove('drag-over');
-            });
-        });
-
-        dropZone.addEventListener('drop', event => {
-            const file = event.dataTransfer?.files?.[0];
-
-            if (file) {
-                uploadPDF(file);
+        window.addEventListener('dragover', event => event.preventDefault());
+        window.addEventListener('drop', event => {
+            event.preventDefault();
+            if (!dropZone.contains(event.target)) {
+                toast('Drop a PDF inside the upload area.', 'info');
             }
+        });
+        dropZone.addEventListener('dragenter', event => {
+            event.preventDefault();
+            state.dragDepth += 1;
+            dropZone.classList.add('drag-over');
+        });
+        dropZone.addEventListener('dragover', event => event.preventDefault());
+        dropZone.addEventListener('dragleave', event => {
+            event.preventDefault();
+            state.dragDepth = Math.max(0, state.dragDepth - 1);
+            if (state.dragDepth === 0) dropZone.classList.remove('drag-over');
+        });
+        dropZone.addEventListener('drop', event => {
+            event.preventDefault();
+            state.dragDepth = 0;
+            dropZone.classList.remove('drag-over');
+            const files = Array.from(event.dataTransfer?.files || []);
+            if (files.length > 1) toast('Only one PDF can be uploaded at a time. The first file will be used.', 'info');
+            if (files[0]) uploadPDF(files[0]);
         });
 
 
@@ -2236,10 +2479,8 @@
         byId('documentsSearch').addEventListener(
             'input',
             event => {
-                state.searchTerm = event.target.value
-                    .trim()
-                    .toLowerCase();
-
+                state.searchTerm = event.target.value.trim().toLowerCase();
+                byId('globalSearch').value = event.target.value;
                 renderDocuments();
             }
         );
@@ -2249,21 +2490,25 @@
             renderDocuments
         );
 
-        byId('globalSearch').addEventListener(
-            'input',
-            event => {
-                const query = event.target.value.trim();
-
-                if (query) {
-                    byId('documentsSearch').value = query;
-
-                    state.searchTerm = query.toLowerCase();
-
-                    navigate('documents');
-                    renderDocuments();
-                }
+        byId('globalSearch').addEventListener('change', event => {
+            const query = event.target.value.trim();
+            byId('documentsSearch').value = query;
+            state.searchTerm = query.toLowerCase();
+            if (query) navigate('documents');
+            renderDocuments();
+        });
+        byId('globalSearch').addEventListener('keydown', event => {
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                byId('globalSearch').dispatchEvent(new Event('change', { bubbles: true }));
             }
-        );
+            if (event.key === 'Escape') {
+                event.target.value = '';
+                byId('documentsSearch').value = '';
+                state.searchTerm = '';
+                renderDocuments();
+            }
+        });
 
         byId('viewGrid').addEventListener(
             'click',
@@ -2307,7 +2552,9 @@
             event => {
                 if (
                     event.key === 'Enter' &&
-                    !event.shiftKey
+                    !event.shiftKey &&
+                    !event.isComposing &&
+                    !state.isSendingQuestion
                 ) {
                     event.preventDefault();
 
@@ -2401,10 +2648,8 @@
             }
         );
 
-        window.addEventListener(
-            'hashchange',
-            handleRoute
-        );
+        window.addEventListener('hashchange', handleRoute);
+        window.addEventListener('popstate', handleRoute);
 
         window.matchMedia?.(
             '(prefers-color-scheme: dark)'
@@ -2456,24 +2701,25 @@
         renderActiveChat();
 
         bindEvents();
+
+        // The correct page is already visible (html[data-route] was set before first
+        // paint). This syncs titles, aria-current and the .active/[hidden] mirror state.
         handleRoute();
+
         renderDocuments();
         refreshIcons();
 
-        // Check backend availability without blocking the page.
-        checkBackend();
+        // One initial health check; load documents only after a successful response.
+        if (await checkBackend()) await loadDocuments(false);
 
-        // If health is reachable, load the document library.
-        window.setTimeout(async () => {
-            if (await checkBackend()) {
-                await loadDocuments(false);
+        // Retry on tab focus so a backend started later can reconnect.
+        window.addEventListener('focus', async () => {
+            if (!state.healthChecked || !byId('backendStatus').classList.contains('connected')) {
+                if (await checkBackend()) await loadDocuments(false);
             }
-        }, 300);
+        });
     }
 
-    // Keep the existing inline HTML onclick handlers working.
-    window.newChat = createChat;
-    window.openFeature = openFeature;
 
     if (document.readyState === 'loading') {
         document.addEventListener(
@@ -2486,5 +2732,3 @@
     }
 
 })();
-
-

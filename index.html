@@ -5,7 +5,38 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="description" content="DocuMind – an intelligent PDF question answering system using Retrieval-Augmented Generation.">
     <meta name="color-scheme" content="light dark">
+    <meta name="theme-color" content="#f7f8fc">
     <title>DocuMind – Intelligent PDF Assistant</title>
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%237c5cff'/%3E%3Cpath d='M32 10l5.5 14.5L52 30l-14.5 5.5L32 50l-5.5-14.5L12 30l14.5-5.5z' fill='white'/%3E%3C/svg%3E">
+
+<script>
+    (() => {
+        // Apply the saved theme before the page is first painted.
+        try {
+            const savedSettings = JSON.parse(
+                localStorage.getItem('documind.settings.v1') || 'null'
+            );
+            const savedTheme = savedSettings && savedSettings.theme;
+
+            if (savedTheme === 'light' || savedTheme === 'dark') {
+                document.documentElement.dataset.theme = savedTheme;
+            }
+        } catch (_) {
+            // Theme storage is optional.
+        }
+
+        // Resolve the current route BEFORE the body is parsed or painted.
+        // The stylesheet reads html[data-route] to decide which page, sidebar
+        // item and title are shown, so the very first paint is already correct.
+        // Keep this list in sync with PAGE_META in script.js.
+        var routes = ['dashboard', 'documents', 'assistant', 'summarizer', 'quiz', 'compare', 'settings'];
+        var requested = window.location.hash.slice(1);
+        document.documentElement.setAttribute(
+            'data-route',
+            routes.indexOf(requested) !== -1 ? requested : 'dashboard'
+        );
+    })();
+</script>
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -13,7 +44,7 @@
     <link rel="stylesheet" href="style.css">
 
     <!-- Lucide icons (initialise with lucide.createIcons() in script.js) -->
-    <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js" defer></script>
+    <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js" defer></script>
 </head>
 <body>
 
@@ -42,7 +73,7 @@
             <p class="menu-title" id="workspaceLabel">WORKSPACE</p>
             <ul class="nav-list" aria-labelledby="workspaceLabel">
                 <li>
-                    <a href="#dashboard" class="nav-link active" id="navDashboard" data-page="dashboard" aria-current="page">
+                    <a href="#dashboard" class="nav-link" id="navDashboard" data-page="dashboard">
                         <i data-lucide="layout-dashboard"></i><span>Dashboard</span>
                     </a>
                 </li>
@@ -74,8 +105,26 @@
                 </li>
             </ul>
 
-            <p class="menu-title" id="recentChatsLabel">RECENT CHATS</p>
-            <ul class="chat-history" id="chatHistory" aria-labelledby="recentChatsLabel">
+            <div class="chat-history-heading">
+                <p class="menu-title" id="recentChatsLabel">RECENT CHATS</p>
+                <button
+                    type="button"
+                    class="chat-history-clear"
+                    data-action="clear-chat-history"
+                    aria-label="Clear all chat history"
+                    aria-controls="chatHistory"
+                    title="Clear all chat history"
+                >
+                    <i data-lucide="trash-2" aria-hidden="true"></i>
+                </button>
+            </div>
+            <ul
+                class="chat-history"
+                id="chatHistory"
+                aria-labelledby="recentChatsLabel"
+                aria-live="polite"
+                aria-relevant="additions removals text"
+            >
                 <li class="chat-history-empty" id="chatHistoryEmpty">No conversations yet.</li>
             </ul>
         </nav>
@@ -89,7 +138,7 @@
                 <div class="avatar" id="userAvatar" aria-hidden="true">A</div>
                 <div class="profile-info">
                     <strong id="userName">My Account</strong>
-                    <small id="userPlan">Free Plan</small>
+                    <small id="userPlan">Local workspace</small>
                 </div>
                 <button class="icon-btn" id="profileMenuBtn" type="button" aria-label="Open account menu" aria-haspopup="menu" aria-expanded="false">
                     <i data-lucide="chevrons-up-down"></i>
@@ -110,8 +159,10 @@
                     <i data-lucide="menu"></i>
                 </button>
                 <div class="topbar-title">
-                    <h2 id="pageTitle">Dashboard</h2>
-                    <p id="pageSubtitle">Your intelligent document workspace</p>
+                    <!-- One span per route so the correct text is visible on first paint (see style.css).
+                         script.js replaces these with plain text on navigation. Keep in sync with PAGE_META. -->
+                    <h2 id="pageTitle"><span data-route-title="dashboard">Dashboard</span><span data-route-title="documents">My Documents</span><span data-route-title="assistant">AI Assistant</span><span data-route-title="summarizer">Smart Summarizer</span><span data-route-title="quiz">Quiz Generator</span><span data-route-title="compare">Compare PDFs</span><span data-route-title="settings">Settings</span></h2>
+                    <p id="pageSubtitle"><span data-route-subtitle="dashboard">Your intelligent document workspace</span><span data-route-subtitle="documents">Manage your indexed PDF library</span><span data-route-subtitle="assistant">Ask questions grounded in your documents</span><span data-route-subtitle="summarizer">Turn long PDFs into concise notes</span><span data-route-subtitle="quiz">Test your understanding with document-based questions</span><span data-route-subtitle="compare">Find similarities and differences between documents</span><span data-route-subtitle="settings">Customize your DocuMind workspace</span></p>
                 </div>
             </div>
 
@@ -137,7 +188,7 @@
         <main class="main" id="mainContent" tabindex="-1">
 
             <!-- ===================== DASHBOARD ===================== -->
-            <section class="page active" id="page-dashboard" data-page-id="dashboard" aria-labelledby="dashboardHeading">
+            <section class="page" id="page-dashboard" data-page-id="dashboard" aria-labelledby="dashboardHeading">
                 <h1 class="sr-only" id="dashboardHeading">Dashboard</h1>
 
                 <!-- Welcome -->
@@ -210,7 +261,7 @@
 
                         <label for="pdfInput" class="sr-only">Choose a PDF file to upload</label>
                         <input type="file" id="pdfInput" name="pdf" accept=".pdf,application/pdf" hidden>
-                        <button class="btn btn-primary" id="browseBtn" type="button" onclick="document.getElementById('pdfInput').click()">
+                        <button class="btn btn-primary" id="browseBtn" type="button" data-action="browse">
                             <i data-lucide="folder-open"></i><span>Browse PDF</span>
                         </button>
                         <small id="dropZoneHint">PDF files only · Maximum 20 MB</small>
@@ -236,28 +287,28 @@
                     </div>
 
                     <div class="feature-grid" id="featureGrid">
-                        <button class="feature-card" id="featureChat" type="button" data-feature="chat" onclick="openFeature('chat')">
+                        <button class="feature-card" id="featureChat" type="button" data-feature="chat">
                             <span class="feature-icon purple" aria-hidden="true"><i data-lucide="message-square-text"></i></span>
                             <h4>Ask AI</h4>
                             <p>Get answers from your PDFs.</p>
                             <span class="feature-link">Explore <i data-lucide="arrow-right"></i></span>
                         </button>
 
-                        <button class="feature-card" id="featureSummary" type="button" data-feature="summary" onclick="openFeature('summary')">
+                        <button class="feature-card" id="featureSummary" type="button" data-feature="summary">
                             <span class="feature-icon blue" aria-hidden="true"><i data-lucide="file-text"></i></span>
                             <h4>Smart Summary</h4>
                             <p>Generate concise document notes.</p>
                             <span class="feature-link">Explore <i data-lucide="arrow-right"></i></span>
                         </button>
 
-                        <button class="feature-card" id="featureQuiz" type="button" data-feature="quiz" onclick="openFeature('quiz')">
+                        <button class="feature-card" id="featureQuiz" type="button" data-feature="quiz">
                             <span class="feature-icon orange" aria-hidden="true"><i data-lucide="list-checks"></i></span>
                             <h4>Quiz Generator</h4>
                             <p>Create MCQs from your PDFs.</p>
                             <span class="feature-link">Explore <i data-lucide="arrow-right"></i></span>
                         </button>
 
-                        <button class="feature-card" id="featureCompare" type="button" data-feature="compare" onclick="openFeature('compare')">
+                        <button class="feature-card" id="featureCompare" type="button" data-feature="compare">
                             <span class="feature-icon green" aria-hidden="true"><i data-lucide="git-compare-arrows"></i></span>
                             <h4>Compare PDFs</h4>
                             <p>Find similarities and differences.</p>
@@ -273,7 +324,7 @@
                         <a href="#documents" id="viewAllDocuments" data-page="documents">View all <i data-lucide="arrow-right"></i></a>
                     </div>
 
-                    <div id="documentList" class="document-list" aria-live="polite">
+                    <div id="documentList" class="document-list">
                         <div class="empty-state" id="documentEmptyState">
                             <div class="empty-icon" aria-hidden="true"><i data-lucide="file-search"></i></div>
                             <h4>No documents yet</h4>
@@ -284,7 +335,7 @@
             </section>
 
             <!-- ===================== MY DOCUMENTS ===================== -->
-            <section class="page" id="page-documents" data-page-id="documents" aria-labelledby="documentsHeading" hidden>
+            <section class="page" id="page-documents" data-page-id="documents" aria-labelledby="documentsHeading">
                 <div class="page-header">
                     <div>
                         <h1 id="documentsHeading">My Documents</h1>
@@ -315,7 +366,7 @@
                     </div>
                 </div>
 
-                <div id="allDocumentsList" class="document-list document-grid" aria-live="polite">
+                <div id="allDocumentsList" class="document-list document-grid">
                     <div class="empty-state" id="allDocumentsEmptyState">
                         <div class="empty-icon" aria-hidden="true"><i data-lucide="folder-open"></i></div>
                         <h4>Your library is empty</h4>
@@ -328,7 +379,7 @@
             </section>
 
             <!-- ===================== AI ASSISTANT ===================== -->
-            <section class="page" id="page-assistant" data-page-id="assistant" aria-labelledby="assistantHeading" hidden>
+            <section class="page" id="page-assistant" data-page-id="assistant" aria-labelledby="assistantHeading">
                 <div class="page-header">
                     <div>
                         <h1 id="assistantHeading">AI Assistant</h1>
@@ -350,7 +401,7 @@
                             </div>
                         </div>
 
-                        <div class="chat-messages" id="chatMessages" role="log" aria-live="polite" aria-label="Conversation">
+                        <div class="chat-messages" id="chatMessages" role="log" aria-relevant="additions text" aria-label="Conversation">
                             <div class="empty-state" id="chatEmptyState">
                                 <div class="empty-icon" aria-hidden="true"><i data-lucide="message-square-text"></i></div>
                                 <h4>Start a conversation</h4>
@@ -370,7 +421,7 @@
 
                     <aside class="sources-panel" id="sourcesPanel" aria-labelledby="sourcesHeading">
                         <h3 id="sourcesHeading">Sources</h3>
-                        <div id="sourcesList" class="sources-list" aria-live="polite">
+                        <div id="sourcesList" class="sources-list">
                             <div class="empty-state compact" id="sourcesEmptyState">
                                 <div class="empty-icon" aria-hidden="true"><i data-lucide="quote"></i></div>
                                 <p>Retrieved passages will appear here after you ask a question.</p>
@@ -381,7 +432,7 @@
             </section>
 
             <!-- ===================== SMART SUMMARIZER ===================== -->
-            <section class="page" id="page-summarizer" data-page-id="summarizer" aria-labelledby="summarizerHeading" hidden>
+            <section class="page" id="page-summarizer" data-page-id="summarizer" aria-labelledby="summarizerHeading">
                 <div class="page-header">
                     <div>
                         <h1 id="summarizerHeading">Smart Summarizer</h1>
@@ -427,7 +478,7 @@
                         </button>
                     </form>
 
-                    <div class="tool-output card" id="summaryOutputCard" aria-live="polite">
+                    <div class="tool-output card">
                         <div class="output-header">
                             <h3>Summary</h3>
                             <div class="output-actions">
@@ -447,7 +498,7 @@
             </section>
 
             <!-- ===================== QUIZ GENERATOR ===================== -->
-            <section class="page" id="page-quiz" data-page-id="quiz" aria-labelledby="quizHeading" hidden>
+            <section class="page" id="page-quiz" data-page-id="quiz" aria-labelledby="quizHeading">
                 <div class="page-header">
                     <div>
                         <h1 id="quizHeading">Quiz Generator</h1>
@@ -494,7 +545,7 @@
                         </button>
                     </form>
 
-                    <div class="tool-output card" id="quizOutputCard" aria-live="polite">
+                    <div class="tool-output card">
                         <div class="output-header">
                             <h3>Quiz</h3>
                             <div class="output-actions">
@@ -516,7 +567,7 @@
             </section>
 
             <!-- ===================== COMPARE PDFS ===================== -->
-            <section class="page" id="page-compare" data-page-id="compare" aria-labelledby="compareHeading" hidden>
+            <section class="page" id="page-compare" data-page-id="compare" aria-labelledby="compareHeading">
                 <div class="page-header">
                     <div>
                         <h1 id="compareHeading">Compare PDFs</h1>
@@ -557,7 +608,7 @@
                     </button>
                 </form>
 
-                <div class="tool-output card" id="compareOutputCard" aria-live="polite">
+                <div class="tool-output card">
                     <div class="output-header">
                         <h3>Comparison result</h3>
                     </div>
@@ -572,7 +623,7 @@
             </section>
 
             <!-- ===================== SETTINGS ===================== -->
-            <section class="page" id="page-settings" data-page-id="settings" aria-labelledby="settingsHeading" hidden>
+            <section class="page" id="page-settings" data-page-id="settings" aria-labelledby="settingsHeading">
                 <div class="page-header">
                     <div>
                         <h1 id="settingsHeading">Settings</h1>

@@ -6,7 +6,10 @@
    SIDEBAR     : add .sidebar-collapsed to .app (or <body>) to collapse (desktop).
                  add .open to .sidebar (or .sidebar-open to .app / <body>) for the
                  mobile drawer, and remove [hidden] from #sidebarOverlay.
-   PAGES       : the active page has .active and no [hidden]; the rest keep [hidden].
+   PAGES       : html[data-route="<page>"] (set by the inline script in <head> and kept in
+                 sync by navigate() in script.js) decides which page, sidebar item and topbar
+                 title are shown, so the first paint is correct before any JS runs.
+                 script.js also mirrors the state with .active / [hidden] / aria-current.
 
    CLASS CONTRACT FOR JS-RENDERED MARKUP
    Documents   : .document-item > .document-icon + .document-info
@@ -88,7 +91,7 @@
 
     --text: #171a2b;
     --text-muted: #5f6478;
-    --text-subtle: #7a8096;
+    --text-subtle: #62677a;
 
     --accent: #7057df;
     --accent-hover: #5f47cf;
@@ -150,11 +153,11 @@
 
     --text: #ececf2;
     --text-muted: #a1a6b8;
-    --text-subtle: #7b8196;
+    --text-subtle: #a1a6b8;
 
-    --accent: #7c68ec;
-    --accent-hover: #8d7bf2;
-    --accent-active: #6e59df;
+    --accent: #6650cf;
+    --accent-hover: #765fe0;
+    --accent-active: #5943bf;
     --accent-soft: rgba(124, 104, 236, .16);
     --accent-border: rgba(124, 104, 236, .42);
     --accent-text: #b8adff;
@@ -922,6 +925,14 @@ option {
     color: var(--text);
 }
 
+html:not([data-route]) .nav-link[data-page="dashboard"],
+html[data-route="dashboard"] .nav-link[data-page="dashboard"],
+html[data-route="documents"] .nav-link[data-page="documents"],
+html[data-route="assistant"] .nav-link[data-page="assistant"],
+html[data-route="summarizer"] .nav-link[data-page="summarizer"],
+html[data-route="quiz"] .nav-link[data-page="quiz"],
+html[data-route="compare"] .nav-link[data-page="compare"],
+html[data-route="settings"] .nav-link[data-page="settings"],
 .nav-link.active,
 .nav-link[aria-current="page"] {
     background: var(--accent-soft);
@@ -944,6 +955,14 @@ option {
     font-variant-numeric: tabular-nums;
 }
 
+html:not([data-route]) .nav-link[data-page="dashboard"] .nav-badge,
+html[data-route="dashboard"] .nav-link[data-page="dashboard"] .nav-badge,
+html[data-route="documents"] .nav-link[data-page="documents"] .nav-badge,
+html[data-route="assistant"] .nav-link[data-page="assistant"] .nav-badge,
+html[data-route="summarizer"] .nav-link[data-page="summarizer"] .nav-badge,
+html[data-route="quiz"] .nav-link[data-page="quiz"] .nav-badge,
+html[data-route="compare"] .nav-link[data-page="compare"] .nav-badge,
+html[data-route="settings"] .nav-link[data-page="settings"] .nav-badge,
 .nav-link.active .nav-badge,
 .nav-link[aria-current="page"] .nav-badge {
     background: var(--accent-border);
@@ -1105,6 +1124,32 @@ option {
     white-space: nowrap;
 }
 
+/* Topbar title/subtitle: one span per route in the HTML; show only the current one.
+   (script.js replaces the spans with plain text after navigation.) */
+.topbar-title [data-route-title],
+.topbar-title [data-route-subtitle] {
+    display: none;
+}
+
+html:not([data-route]) .topbar-title [data-route-title="dashboard"],
+html[data-route="dashboard"] .topbar-title [data-route-title="dashboard"],
+html[data-route="documents"] .topbar-title [data-route-title="documents"],
+html[data-route="assistant"] .topbar-title [data-route-title="assistant"],
+html[data-route="summarizer"] .topbar-title [data-route-title="summarizer"],
+html[data-route="quiz"] .topbar-title [data-route-title="quiz"],
+html[data-route="compare"] .topbar-title [data-route-title="compare"],
+html[data-route="settings"] .topbar-title [data-route-title="settings"],
+html:not([data-route]) .topbar-title [data-route-subtitle="dashboard"],
+html[data-route="dashboard"] .topbar-title [data-route-subtitle="dashboard"],
+html[data-route="documents"] .topbar-title [data-route-subtitle="documents"],
+html[data-route="assistant"] .topbar-title [data-route-subtitle="assistant"],
+html[data-route="summarizer"] .topbar-title [data-route-subtitle="summarizer"],
+html[data-route="quiz"] .topbar-title [data-route-subtitle="quiz"],
+html[data-route="compare"] .topbar-title [data-route-subtitle="compare"],
+html[data-route="settings"] .topbar-title [data-route-subtitle="settings"] {
+    display: inline;
+}
+
 .topbar-right {
     display: flex;
     align-items: center;
@@ -1163,9 +1208,23 @@ option {
     padding: var(--space-6) var(--space-8) 56px;
 }
 
+/* Route-driven page visibility. Only the page matching html[data-route] is shown.
+   The :not([data-route]) selector is a fallback for when the inline head script
+   did not run (it defaults to the Dashboard). */
 .page {
-    display: block;
+    display: none;
     min-width: 0;
+}
+
+html:not([data-route]) #page-dashboard,
+html[data-route="dashboard"] #page-dashboard,
+html[data-route="documents"] #page-documents,
+html[data-route="assistant"] #page-assistant,
+html[data-route="summarizer"] #page-summarizer,
+html[data-route="quiz"] #page-quiz,
+html[data-route="compare"] #page-compare,
+html[data-route="settings"] #page-settings {
+    display: block;
 }
 
 .page-header {
@@ -3106,3 +3165,341 @@ dialog.modal::backdrop {
 }
 
 
+
+
+/* ==========================================================================
+   15. ACCESSIBILITY & RESPONSIVE POLISH
+   These overrides preserve the existing HTML/JS class contract.
+   ========================================================================== */
+
+/* Keep secondary text readable in both themes. */
+.text-subtle,
+.stat-note,
+.chat-hint,
+.file-status,
+.document-meta,
+.chat-history-empty {
+    color: var(--text-subtle);
+}
+
+/* Better readable formatting for generated answers and summaries. */
+.message-body,
+.summary-content {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    white-space: normal;
+}
+
+.message-body p,
+.summary-content p {
+    margin: 0 0 .75em;
+}
+
+.message-body p:last-child,
+.summary-content p:last-child {
+    margin-bottom: 0;
+}
+
+.message-body h1,
+.message-body h2,
+.message-body h3,
+.summary-content h1,
+.summary-content h2,
+.summary-content h3 {
+    margin: 1em 0 .45em;
+    font-size: 1.08em;
+    font-weight: 650;
+}
+
+.message-body ul,
+.message-body ol,
+.summary-content ul,
+.summary-content ol {
+    margin: .5em 0;
+    padding-left: 1.4em;
+}
+
+.message-body li + li,
+.summary-content li + li {
+    margin-top: .25em;
+}
+
+.message-body pre,
+.summary-content pre {
+    max-width: 100%;
+    margin: .75em 0;
+    padding: 12px;
+    overflow-x: auto;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    background: var(--surface);
+    font-family: var(--font-mono);
+    font-size: .88em;
+    white-space: pre;
+}
+
+.message-body pre code,
+.summary-content pre code {
+    padding: 0;
+    background: transparent;
+}
+
+.message-body blockquote,
+.summary-content blockquote {
+    margin: .75em 0;
+    padding: .25em 0 .25em 12px;
+    border-left: 3px solid var(--accent-border);
+    color: var(--text-muted);
+}
+
+/* Allow long document names and generated source passages to wrap safely. */
+.source-text,
+.document-meta,
+.output-message,
+.compare-section li {
+    overflow-wrap: anywhere;
+}
+
+/* More predictable chat sizing across desktop and tablet viewport heights. */
+.chat-layout {
+    min-height: 480px;
+}
+
+.chat-panel {
+    min-height: 0;
+}
+
+.sources-panel {
+    min-width: 0;
+}
+
+.source-card {
+    min-width: 0;
+}
+
+/* Prevent keyboard focus indicators from being clipped by cards and panels. */
+.feature-card:focus-visible,
+.nav-link:focus-visible,
+.chat-history-item:focus-visible,
+.icon-btn:focus-visible,
+.citation:focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
+}
+
+/* Honour the operating system's reduced-motion preference. */
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        scroll-behavior: auto !important;
+        animation-duration: .01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: .01ms !important;
+    }
+}
+
+/* On phones, keep the chat usable and make source cards browse horizontally
+   instead of pushing the conversation far below the fold. */
+@media (max-width: 768px) {
+    .chat-layout {
+        display: flex;
+        flex-direction: column;
+        gap: var(--space-3);
+    }
+
+    .chat-panel {
+        height: min(62dvh, 620px);
+        min-height: 390px;
+    }
+
+    .sources-panel {
+        max-height: 230px;
+        padding: var(--space-3);
+    }
+
+    .sources-panel h3 {
+        margin-bottom: 8px;
+    }
+
+    .sources-list {
+        display: grid;
+        grid-auto-flow: column;
+        grid-auto-columns: minmax(220px, 82%);
+        grid-template-rows: minmax(0, 1fr);
+        gap: 8px;
+        overflow-x: auto;
+        overflow-y: hidden;
+        padding-bottom: 4px;
+        scroll-snap-type: x proximity;
+    }
+
+    .sources-list > .source-card {
+        overflow: auto;
+        scroll-snap-align: start;
+    }
+
+    .sources-list > .empty-state {
+        min-width: min(260px, 75vw);
+        margin: 0;
+    }
+
+    .message {
+        max-width: 100%;
+    }
+
+    .chat-messages {
+        padding: var(--space-4);
+    }
+}
+
+/* Compact phones: preserve space for the composer and avoid narrow controls. */
+@media (max-width: 520px) {
+    .chat-panel {
+        height: 58dvh;
+        min-height: 360px;
+    }
+
+    .chat-context {
+        gap: 8px;
+        padding: 10px 12px;
+    }
+
+    .chat-context label {
+        width: 100%;
+    }
+
+    .chat-form {
+        margin-inline: 10px;
+    }
+
+    .source-card {
+        padding: 10px;
+    }
+
+    .page-header .btn,
+    .page-header .form-actions {
+        max-width: 100%;
+    }
+}
+
+/* Very short landscape screens need a smaller minimum chat height. */
+@media (max-height: 620px) and (max-width: 900px) {
+    .chat-panel {
+        height: 70dvh;
+        min-height: 300px;
+    }
+
+    .sources-panel {
+        max-height: 190px;
+    }
+}
+
+
+/* Chat history management: individual delete and clear-all controls. */
+.chat-history-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-top: 24px;
+}
+
+.chat-history-heading .menu-title {
+    margin: 0;
+}
+
+.chat-history-clear,
+.chat-history-delete {
+    display: inline-grid;
+    place-items: center;
+    flex: 0 0 auto;
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    border: 0;
+    border-radius: 7px;
+    background: transparent;
+    color: var(--text-subtle);
+    opacity: .72;
+    cursor: pointer;
+    transition: background-color .18s ease, color .18s ease, opacity .18s ease;
+}
+
+.chat-history-clear:hover,
+.chat-history-delete:hover {
+    background: var(--danger-soft);
+    color: var(--danger);
+    opacity: 1;
+}
+
+.chat-history-clear .lucide,
+.chat-history-delete .lucide {
+    width: 15px;
+    height: 15px;
+}
+
+.chat-history-row {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    min-width: 0;
+}
+
+.chat-history-row .chat-history-item {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.chat-history-delete {
+    opacity: 0;
+}
+
+.chat-history-row:hover .chat-history-delete,
+.chat-history-row:focus-within .chat-history-delete {
+    opacity: 1;
+}
+
+@media (hover: none) {
+    .chat-history-delete {
+        opacity: .8;
+    }
+}
+
+
+/* Fix: keep chat titles visible in the Recent Chats sidebar. */
+#chatHistory {
+    width: 100%;
+    min-width: 0;
+}
+
+#chatHistory > .chat-history-row {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    min-width: 0;
+}
+
+#chatHistory .chat-history-row > .chat-history-item {
+    display: flex;
+    flex: 1 1 0%;
+    align-items: center;
+    width: auto;
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
+    white-space: nowrap;
+}
+
+#chatHistory .chat-history-row > .chat-history-item > span {
+    display: block;
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+#chatHistory .chat-history-row > .chat-history-delete {
+    flex: 0 0 30px;
+}
