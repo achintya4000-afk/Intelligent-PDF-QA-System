@@ -1,3 +1,4 @@
+
 name: Deploy DocuMind Frontend
 
 on:
@@ -33,7 +34,7 @@ jobs:
       - name: Upload frontend files
         uses: actions/upload-pages-artifact@v3
         with:
-          path: ./frontend
+          path: frontend
 
       - name: Deploy to GitHub Pages
         id: deployment
