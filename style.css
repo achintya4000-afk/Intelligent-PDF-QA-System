@@ -1,6 +1,6 @@
 /* ==========================================================================
    DocuMind – style.css
-   Premium AI SaaS dashboard · light + dark themes · pure CSS3
+   Premium AI SaaS dashboard · glassmorphism · light + dark themes · pure CSS3
 
    THEME       : set data-theme="light" | "dark" on <html> (or <body>).
    SIDEBAR     : add .sidebar-collapsed to .app (or <body>) to collapse (desktop).
@@ -54,10 +54,10 @@
     --space-8: 32px;
     --space-10: 40px;
 
-    --radius-sm: 8px;
-    --radius-md: 10px;
-    --radius-lg: 14px;
-    --radius-xl: 18px;
+    --radius-sm: 10px;
+    --radius-md: 12px;
+    --radius-lg: 16px;
+    --radius-xl: 22px;
     --radius-full: 999px;
 
     --sidebar-width: 264px;
@@ -71,7 +71,12 @@
     --z-modal: 100;
     --z-toast: 120;
 
+    --glass-filter: blur(16px) saturate(160%);
+    --glass-filter-strong: blur(24px) saturate(170%);
+
     --t-colors: background-color .18s ease, border-color .18s ease, color .18s ease, box-shadow .18s ease;
+    --t-lift: var(--t-colors), transform .2s ease;    /* cards that lift on hover */
+    --t-press: var(--t-colors), transform .12s ease;  /* buttons that press on :active */
 }
 
 /* ---------- Light theme (default) ---------- */
@@ -79,19 +84,19 @@
 [data-theme="light"] {
     color-scheme: light;
 
-    --bg: #f7f7fa;
+    --bg: #f5f4fb;
     --surface: #ffffff;
-    --surface-2: #f4f4f8;
-    --surface-hover: #f1f1f6;
-    --input-bg: #ffffff;
-    --topbar-bg: rgba(247, 247, 250, .86);
+    --surface-2: #f3f1fa;
+    --surface-hover: #eeebf9;
+    --input-bg: rgba(255, 255, 255, .72);
+    --topbar-bg: rgba(250, 249, 255, .72);
 
-    --border: #e6e7ee;
-    --border-strong: #d5d7e2;
+    --border: #e5e2f1;
+    --border-strong: #d3cfe6;
 
-    --text: #171a2b;
-    --text-muted: #5f6478;
-    --text-subtle: #62677a;
+    --text: #181630;
+    --text-muted: #5a5873;
+    --text-subtle: #625f7a;
 
     --accent: #7057df;
     --accent-hover: #5f47cf;
@@ -121,9 +126,11 @@
     --orange: #d9822b;  --orange-soft: #fdf1e3;
     --green: #1f9a6f;   --green-soft: #e6f6ef;
 
-    --welcome-bg: linear-gradient(135deg, #2b2560 0%, #6a53e0 100%);
+    --welcome-bg: radial-gradient(120% 140% at 100% 0%, rgba(176, 160, 255, .32), transparent 55%),
+                  linear-gradient(135deg, #2b2560 0%, #6a53e0 100%);
+    --welcome-glow: rgba(207, 198, 255, .35);  /* same lilac as .welcome-title span; used in both themes */
 
-    --overlay: rgba(15, 17, 30, .42);
+    --overlay: rgba(20, 16, 44, .4);
     --tooltip-bg: #1b1d2b;
     --tooltip-text: #ffffff;
     --skeleton-base: #eceef4;
@@ -131,29 +138,45 @@
     --scrollbar-thumb: #cfd2de;
     --scrollbar-thumb-hover: #b6bacb;
 
-    --shadow-xs: 0 1px 2px rgba(20, 22, 40, .05);
-    --shadow-sm: 0 1px 3px rgba(20, 22, 40, .06), 0 1px 2px rgba(20, 22, 40, .04);
-    --shadow-md: 0 6px 20px rgba(20, 22, 40, .08);
-    --shadow-lg: 0 20px 50px rgba(20, 22, 40, .18);
+    --shadow-xs: 0 1px 2px rgba(40, 30, 90, .05);
+    --shadow-sm: 0 1px 3px rgba(40, 30, 90, .07), 0 1px 2px rgba(40, 30, 90, .04);
+    --shadow-md: 0 8px 24px rgba(40, 30, 90, .09);
+    --shadow-lg: 0 20px 50px rgba(40, 30, 90, .2);
+
+    /* Glass: translucent layers, hairline borders, soft depth */
+    --bg-glow: radial-gradient(900px 600px at 6% -8%, rgba(124, 100, 240, .15), transparent 60%),
+               radial-gradient(800px 560px at 100% 0%, rgba(170, 142, 255, .12), transparent 55%),
+               radial-gradient(900px 700px at 72% 112%, rgba(110, 90, 230, .08), transparent 60%);
+    --glass-bg: rgba(255, 255, 255, .66);
+    --glass-bg-strong: rgba(255, 255, 255, .84);
+    --glass-inner: rgba(255, 255, 255, .7);
+    --glass-border: rgba(112, 95, 200, .16);
+    --glass-shadow: 0 1px 2px rgba(40, 30, 90, .04), 0 8px 24px rgba(40, 30, 90, .06), inset 0 1px 0 rgba(255, 255, 255, .8);
+    --glass-shadow-hover: 0 2px 4px rgba(40, 30, 90, .05), 0 14px 34px rgba(70, 50, 150, .13), inset 0 1px 0 rgba(255, 255, 255, .9);
+
+    --accent-grad: linear-gradient(135deg, #7762e4 0%, #6149d4 100%);
+    --accent-grad-hover: linear-gradient(135deg, #6a54db 0%, #5640c6 100%);
+    --accent-shadow: 0 1px 2px rgba(80, 60, 200, .25), 0 4px 12px rgba(100, 80, 220, .2), inset 0 1px 0 rgba(255, 255, 255, .2);
+    --accent-shadow-hover: 0 1px 2px rgba(80, 60, 200, .3), 0 6px 16px rgba(100, 80, 220, .28), inset 0 1px 0 rgba(255, 255, 255, .22);
 }
 
 /* ---------- Dark theme ---------- */
 [data-theme="dark"] {
     color-scheme: dark;
 
-    --bg: #111215;
-    --surface: #181a1f;
-    --surface-2: #1f2229;
-    --surface-hover: #252932;
-    --input-bg: #14161a;
-    --topbar-bg: rgba(17, 18, 21, .86);
+    --bg: #0d0c14;
+    --surface: #171523;
+    --surface-2: #1e1b2e;
+    --surface-hover: #292540;
+    --input-bg: rgba(12, 11, 20, .55);
+    --topbar-bg: rgba(14, 13, 22, .7);
 
-    --border: #2a2e38;
-    --border-strong: #3a3f4c;
+    --border: #2b2840;
+    --border-strong: #3b3755;
 
-    --text: #ececf2;
-    --text-muted: #a1a6b8;
-    --text-subtle: #a1a6b8;
+    --text: #eeedf6;
+    --text-muted: #aca8c4;
+    --text-subtle: #a5a1be;
 
     --accent: #6650cf;
     --accent-hover: #765fe0;
@@ -183,20 +206,37 @@
     --orange: #eeaa62;  --orange-soft: rgba(238, 170, 98, .15);
     --green: #4cd3a0;   --green-soft: rgba(76, 211, 160, .14);
 
-    --welcome-bg: linear-gradient(135deg, #1d1a3a 0%, #4b3bb0 100%);
+    --welcome-bg: radial-gradient(120% 140% at 100% 0%, rgba(140, 120, 255, .28), transparent 55%),
+                  linear-gradient(135deg, #1d1a3a 0%, #4b3bb0 100%);
 
-    --overlay: rgba(0, 0, 0, .62);
+    --overlay: rgba(5, 4, 12, .62);
     --tooltip-bg: #ececf2;
-    --tooltip-text: #111215;
-    --skeleton-base: #21242c;
-    --skeleton-shine: #2b2f39;
-    --scrollbar-thumb: #3a3f4c;
-    --scrollbar-thumb-hover: #4b5160;
+    --tooltip-text: #0d0c14;
+    --skeleton-base: #221f33;
+    --skeleton-shine: #2e2a45;
+    --scrollbar-thumb: #3b3755;
+    --scrollbar-thumb-hover: #4d4870;
 
     --shadow-xs: 0 1px 2px rgba(0, 0, 0, .35);
     --shadow-sm: 0 1px 3px rgba(0, 0, 0, .4);
     --shadow-md: 0 8px 24px rgba(0, 0, 0, .45);
     --shadow-lg: 0 24px 60px rgba(0, 0, 0, .6);
+
+    /* Glass: deeper violet-tinted layers with light hairlines */
+    --bg-glow: radial-gradient(900px 600px at 6% -8%, rgba(124, 104, 236, .2), transparent 60%),
+               radial-gradient(800px 560px at 100% 0%, rgba(150, 120, 255, .12), transparent 55%),
+               radial-gradient(900px 700px at 72% 112%, rgba(100, 80, 220, .12), transparent 60%);
+    --glass-bg: rgba(28, 25, 44, .6);
+    --glass-bg-strong: rgba(22, 20, 36, .8);
+    --glass-inner: rgba(255, 255, 255, .04);
+    --glass-border: rgba(255, 255, 255, .09);
+    --glass-shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 10px 30px rgba(0, 0, 0, .28), inset 0 1px 0 rgba(255, 255, 255, .06);
+    --glass-shadow-hover: 0 2px 4px rgba(0, 0, 0, .35), 0 16px 40px rgba(0, 0, 0, .4), inset 0 1px 0 rgba(255, 255, 255, .09);
+
+    --accent-grad: linear-gradient(135deg, #7660e0 0%, #5b45c8 100%);
+    --accent-grad-hover: linear-gradient(135deg, #8570ec 0%, #6650d6 100%);
+    --accent-shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 4px 14px rgba(90, 70, 210, .3), inset 0 1px 0 rgba(255, 255, 255, .16);
+    --accent-shadow-hover: 0 1px 2px rgba(0, 0, 0, .4), 0 6px 18px rgba(100, 80, 230, .38), inset 0 1px 0 rgba(255, 255, 255, .2);
 }
 
 
@@ -213,6 +253,7 @@
 html {
     -webkit-text-size-adjust: 100%;
     text-size-adjust: 100%;
+    background-color: var(--bg);
     scroll-behavior: smooth;
 }
 
@@ -233,6 +274,16 @@ body {
 body.sidebar-open,
 body.modal-open {
     overflow: hidden;
+}
+
+/* Soft violet lighting behind the glass layers (fixed, never scrolls) */
+body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    background: var(--bg-glow);
+    pointer-events: none;
 }
 
 h1, h2, h3, h4, h5, h6 {
@@ -407,7 +458,7 @@ i[data-lucide],
     line-height: 1;
     white-space: nowrap;
     text-decoration: none;
-    transition: var(--t-colors);
+    transition: var(--t-press);
 }
 
 .btn .lucide,
@@ -418,13 +469,14 @@ i[data-lucide],
 
 .btn-primary {
     --spinner-color: var(--on-accent);
-    background: var(--accent);
+    background: var(--accent-grad);
     color: var(--on-accent);
-    box-shadow: var(--shadow-xs);
+    box-shadow: var(--accent-shadow);
 }
 
 .btn-primary:hover:not(:disabled) {
-    background: var(--accent-hover);
+    background: var(--accent-grad-hover);
+    box-shadow: var(--accent-shadow-hover);
 }
 
 .btn-primary:active:not(:disabled) {
@@ -432,7 +484,7 @@ i[data-lucide],
 }
 
 .btn-secondary {
-    background: var(--surface);
+    background: var(--glass-bg-strong);
     border-color: var(--border-strong);
     color: var(--text);
     box-shadow: var(--shadow-xs);
@@ -440,7 +492,7 @@ i[data-lucide],
 
 .btn-secondary:hover:not(:disabled) {
     background: var(--surface-hover);
-    border-color: var(--text-subtle);
+    border-color: var(--accent-border);
 }
 
 .btn-secondary:active:not(:disabled) {
@@ -470,6 +522,7 @@ i[data-lucide],
 .btn[disabled] {
     opacity: .5;
     box-shadow: none;
+    filter: saturate(.55);
 }
 
 /* Loading state (add .loading or .is-loading from JS) */
@@ -510,7 +563,7 @@ i[data-lucide],
     border-radius: var(--radius-sm);
     background: transparent;
     color: var(--text-muted);
-    transition: var(--t-colors);
+    transition: var(--t-press);
 }
 
 .icon-btn:hover:not(:disabled) {
@@ -535,8 +588,8 @@ i[data-lucide],
 
 #themeToggle,
 .output-actions .icon-btn {
-    border-color: var(--border);
-    background: var(--surface);
+    border-color: var(--glass-border);
+    background: var(--glass-bg-strong);
 }
 
 #themeToggle:hover,
@@ -641,7 +694,7 @@ input[type="search"]::-webkit-search-decoration {
 }
 
 :where(input, select, textarea):hover {
-    border-color: var(--text-subtle);
+    border-color: var(--accent-border);
 }
 
 :where(input, select, textarea):focus-visible {
@@ -800,8 +853,10 @@ option {
     height: 100vh;
     height: 100dvh;
     padding: var(--space-4);
-    background: var(--surface);
-    border-right: 1px solid var(--border);
+    background: var(--glass-bg-strong);
+    border-right: 1px solid var(--glass-border);
+    -webkit-backdrop-filter: var(--glass-filter-strong);
+    backdrop-filter: var(--glass-filter-strong);
     transition: width .2s ease, flex-basis .2s ease, background-color .2s ease, border-color .2s ease;
 }
 
@@ -829,10 +884,10 @@ option {
     flex-shrink: 0;
     width: 32px;
     height: 32px;
-    border-radius: 9px;
-    background: var(--accent);
+    border-radius: var(--radius-md);
+    background: var(--accent-grad);
     color: var(--on-accent);
-    box-shadow: var(--shadow-sm);
+    box-shadow: var(--accent-shadow);
 }
 
 .logo-mark .lucide,
@@ -854,12 +909,12 @@ option {
     height: 40px;
     border: 1px solid transparent;
     border-radius: var(--radius-md);
-    background: var(--accent);
+    background: var(--accent-grad);
     color: var(--on-accent);
     font-size: 13.5px;
     font-weight: 600;
-    box-shadow: var(--shadow-xs);
-    transition: var(--t-colors);
+    box-shadow: var(--accent-shadow);
+    transition: var(--t-press);
 }
 
 .new-chat .lucide,
@@ -869,7 +924,8 @@ option {
 }
 
 .new-chat:hover {
-    background: var(--accent-hover);
+    background: var(--accent-grad-hover);
+    box-shadow: var(--accent-shadow-hover);
 }
 
 .new-chat:active {
@@ -912,7 +968,7 @@ option {
     gap: 10px;
     height: 38px;
     padding: 0 10px;
-    border-radius: 9px;
+    border-radius: var(--radius-md);
     color: var(--text-muted);
     font-size: 13.5px;
     font-weight: 500;
@@ -938,6 +994,7 @@ html[data-route="settings"] .nav-link[data-page="settings"],
     background: var(--accent-soft);
     color: var(--accent-text);
     font-weight: 600;
+    box-shadow: inset 0 0 0 1px var(--accent-border);
 }
 
 .nav-badge {
@@ -1034,10 +1091,11 @@ html[data-route="settings"] .nav-link[data-page="settings"] .nav-badge,
     width: 34px;
     height: 34px;
     border-radius: 50%;
-    background: var(--accent);
+    background: var(--accent-grad);
     color: var(--on-accent);
     font-size: 13px;
     font-weight: 600;
+    box-shadow: var(--shadow-sm);
 }
 
 .profile-info {
@@ -1077,6 +1135,8 @@ html[data-route="settings"] .nav-link[data-page="settings"] .nav-badge,
     inset: 0;
     z-index: var(--z-overlay);
     background: var(--overlay);
+    -webkit-backdrop-filter: blur(3px);
+    backdrop-filter: blur(3px);
 }
 
 /* ---------- Topbar ---------- */
@@ -1091,9 +1151,10 @@ html[data-route="settings"] .nav-link[data-page="settings"] .nav-badge,
     min-height: var(--topbar-height);
     padding: 0 var(--space-8);
     background: var(--topbar-bg);
-    border-bottom: 1px solid var(--border);
-    -webkit-backdrop-filter: saturate(160%) blur(10px);
-    backdrop-filter: saturate(160%) blur(10px);
+    border-bottom: 1px solid var(--glass-border);
+    -webkit-backdrop-filter: var(--glass-filter);
+    backdrop-filter: var(--glass-filter);
+    box-shadow: var(--shadow-xs);
     transition: background-color .2s ease, border-color .2s ease;
 }
 
@@ -1170,7 +1231,8 @@ html[data-route="settings"] .topbar-title [data-route-subtitle="settings"] {
     padding: 0 12px;
     border: 1px solid var(--border);
     border-radius: var(--radius-full);
-    background: var(--surface);
+    background: var(--glass-bg-strong);
+    box-shadow: var(--shadow-xs);
     color: var(--text-muted);
     font-size: 12px;
     font-weight: 500;
@@ -1178,10 +1240,12 @@ html[data-route="settings"] .topbar-title [data-route-subtitle="settings"] {
 }
 
 .status-dot {
+    position: relative;
     width: 8px;
     height: 8px;
     border-radius: 50%;
     background: var(--text-subtle);
+    transition: background-color .3s ease, box-shadow .3s ease;
 }
 
 .backend-status.connected .status-dot {
@@ -1197,6 +1261,48 @@ html[data-route="settings"] .topbar-title [data-route-subtitle="settings"] {
 .backend-status.checking .status-dot {
     background: var(--warning);
     box-shadow: 0 0 0 3px var(--warning-soft);
+}
+
+/* Status light animation (decorative: the text label carries the meaning).
+   The expanding ring is the dot's ::after. It copies the dot's own colour with
+   background: inherit, so it always matches the existing status colours and themes.
+   Only transform and opacity are animated. Wrapped in no-preference so people who
+   ask for reduced motion get the plain static dot. Keyframes: see section 13. */
+@media (prefers-reduced-motion: no-preference) {
+    .status-dot::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        border-radius: inherit;
+        background: inherit;
+        opacity: 0;
+        pointer-events: none;
+    }
+
+    /* Connected: slow, subtle pulse */
+    .backend-status.connected .status-dot::after {
+        --pulse-scale: 2.2;
+        --pulse-peak: .35;
+        animation: status-pulse 2.8s ease-out infinite;
+    }
+
+    /* Checking: quicker, still gentle */
+    .backend-status.checking .status-dot::after {
+        --pulse-scale: 2.4;
+        --pulse-peak: .45;
+        animation: status-pulse 1.2s ease-out infinite;
+    }
+
+    /* Disconnected: stronger pulse plus a soft blink of the dot itself */
+    .backend-status.error .status-dot::after {
+        --pulse-scale: 2.8;
+        --pulse-peak: .6;
+        animation: status-pulse 1.4s ease-out infinite;
+    }
+
+    .backend-status.error .status-dot {
+        animation: status-blink 1.4s ease-in-out infinite;
+    }
 }
 
 /* ---------- Main content ---------- */
@@ -1236,9 +1342,9 @@ html[data-route="settings"] #page-settings {
 }
 
 .page-header h1 {
-    font-size: 22px;
+    font-size: 24px;
     font-weight: 700;
-    letter-spacing: -.015em;
+    letter-spacing: -.02em;
 }
 
 .page-header p {
@@ -1284,11 +1390,13 @@ html[data-route="settings"] #page-settings {
 }
 
 .card {
-    background: var(--surface);
-    border: 1px solid var(--border);
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
     border-radius: var(--radius-lg);
-    box-shadow: var(--shadow-xs);
+    box-shadow: var(--glass-shadow);
     transition: var(--t-colors);
+    -webkit-backdrop-filter: var(--glass-filter);
+    backdrop-filter: var(--glass-filter);
 }
 
 
@@ -1299,6 +1407,7 @@ html[data-route="settings"] #page-settings {
 /* ---------- Welcome ---------- */
 .welcome {
     position: relative;
+    isolation: isolate;
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -1308,7 +1417,8 @@ html[data-route="settings"] #page-settings {
     border-radius: var(--radius-xl);
     background: var(--welcome-bg);
     color: #fff;
-    box-shadow: var(--shadow-md);
+    border: 1px solid rgba(255, 255, 255, .12);
+    box-shadow: var(--shadow-md), inset 0 1px 0 rgba(255, 255, 255, .18);
 }
 
 .welcome-content {
@@ -1321,6 +1431,8 @@ html[data-route="settings"] #page-settings {
     padding: 5px 10px;
     border-radius: var(--radius-full);
     background: rgba(255, 255, 255, .14);
+    -webkit-backdrop-filter: blur(8px);
+    backdrop-filter: blur(8px);
     color: rgba(255, 255, 255, .88);
     font-size: 11px;
     font-weight: 600;
@@ -1356,15 +1468,19 @@ html[data-route="settings"] #page-settings {
 .welcome .btn-primary {
     background: #fff;
     color: #2b2560;
+    box-shadow: var(--shadow-sm);
 }
 
 .welcome .btn-primary:hover:not(:disabled) {
     background: #f0edff;
+    box-shadow: var(--shadow-md);
 }
 
 .welcome .btn-secondary {
     background: rgba(255, 255, 255, .12);
     border-color: rgba(255, 255, 255, .28);
+    -webkit-backdrop-filter: blur(8px);
+    backdrop-filter: blur(8px);
     color: #fff;
     box-shadow: none;
 }
@@ -1386,7 +1502,10 @@ html[data-route="settings"] #page-settings {
     height: 120px;
     border: 1px solid rgba(255, 255, 255, .16);
     border-radius: 28px;
-    background: rgba(255, 255, 255, .08);
+    background: rgba(255, 255, 255, .1);
+    -webkit-backdrop-filter: blur(10px);
+    backdrop-filter: blur(10px);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, .18);
     color: rgba(255, 255, 255, .88);
 }
 
@@ -1414,11 +1533,13 @@ html[data-route="settings"] #page-settings {
     gap: 14px;
     min-width: 0;
     padding: var(--space-5);
-    background: var(--surface);
-    border: 1px solid var(--border);
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
     border-radius: var(--radius-lg);
-    box-shadow: var(--shadow-xs);
-    transition: var(--t-colors);
+    box-shadow: var(--glass-shadow);
+    transition: var(--t-lift);
+    -webkit-backdrop-filter: var(--glass-filter);
+    backdrop-filter: var(--glass-filter);
 }
 
 .stat-icon {
@@ -1450,7 +1571,7 @@ html[data-route="settings"] #page-settings {
 
 .stat-value {
     margin-top: 2px;
-    font-size: 26px;
+    font-size: 28px;
     font-weight: 700;
     line-height: 1.2;
     letter-spacing: -.02em;
@@ -1476,14 +1597,18 @@ html[data-route="settings"] #page-settings {
     align-items: center;
     padding: 36px 24px;
     text-align: center;
-    background: var(--surface);
+    background: var(--glass-bg);
     border: 2px dashed var(--border-strong);
     border-radius: var(--radius-lg);
     transition: var(--t-colors);
+    -webkit-backdrop-filter: var(--glass-filter);
+    backdrop-filter: var(--glass-filter);
+    box-shadow: var(--glass-shadow);
 }
 
 .upload-box:hover {
     border-color: var(--accent-border);
+    background: var(--glass-bg-strong);
 }
 
 .upload-box.drag-over,
@@ -1552,10 +1677,12 @@ html[data-route="settings"] #page-settings {
 .upload-progress {
     margin-top: 14px;
     padding: 14px var(--space-4);
-    background: var(--surface);
-    border: 1px solid var(--border);
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
     border-radius: var(--radius-lg);
-    box-shadow: var(--shadow-xs);
+    box-shadow: var(--glass-shadow);
+    -webkit-backdrop-filter: var(--glass-filter);
+    backdrop-filter: var(--glass-filter);
 }
 
 .progress-info {
@@ -1592,7 +1719,7 @@ html[data-route="settings"] #page-settings {
     width: 0;
     height: 100%;
     border-radius: inherit;
-    background: var(--accent);
+    background: var(--accent-grad);
     transition: width .2s ease, background-color .2s ease;
 }
 
@@ -1636,17 +1763,19 @@ html[data-route="settings"] #page-settings {
     width: 100%;
     padding: var(--space-5);
     text-align: left;
-    background: var(--surface);
-    border: 1px solid var(--border);
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
     border-radius: var(--radius-lg);
     color: inherit;
-    box-shadow: var(--shadow-xs);
-    transition: var(--t-colors);
+    box-shadow: var(--glass-shadow);
+    transition: var(--t-lift);
+    -webkit-backdrop-filter: var(--glass-filter);
+    backdrop-filter: var(--glass-filter);
 }
 
 .feature-card:hover {
     border-color: var(--accent-border);
-    box-shadow: var(--shadow-md);
+    box-shadow: var(--glass-shadow-hover);
 }
 
 .feature-card:active {
@@ -1700,11 +1829,13 @@ html[data-route="settings"] #page-settings {
 /* ---------- Documents list (dashboard + library) ---------- */
 .document-list {
     padding: 4px var(--space-4);
-    background: var(--surface);
-    border: 1px solid var(--border);
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
     border-radius: var(--radius-lg);
-    box-shadow: var(--shadow-xs);
+    box-shadow: var(--glass-shadow);
     transition: var(--t-colors);
+    -webkit-backdrop-filter: var(--glass-filter);
+    backdrop-filter: var(--glass-filter);
 }
 
 .document-item,
@@ -1715,7 +1846,7 @@ html[data-route="settings"] #page-settings {
     padding: 12px 0;
     border-bottom: 1px solid var(--border);
     font-size: 13px;
-    transition: var(--t-colors);
+    transition: var(--t-lift);
 }
 
 .document-item:last-child,
@@ -1792,9 +1923,9 @@ html[data-route="settings"] #page-settings {
     gap: 2px;
     margin-left: auto;
     padding: 3px;
-    border: 1px solid var(--border);
+    border: 1px solid var(--glass-border);
     border-radius: var(--radius-md);
-    background: var(--surface);
+    background: var(--glass-bg-strong);
 }
 
 .view-toggle .icon-btn {
@@ -1810,13 +1941,17 @@ html[data-route="settings"] #page-settings {
     background: transparent;
     border: 0;
     box-shadow: none;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
 }
 
 .document-grid > .empty-state {
     grid-column: 1 / -1;
-    background: var(--surface);
+    background: var(--glass-bg);
     border: 1px dashed var(--border-strong);
     border-radius: var(--radius-lg);
+    -webkit-backdrop-filter: var(--glass-filter);
+    backdrop-filter: var(--glass-filter);
 }
 
 .document-grid .document-item,
@@ -1825,16 +1960,18 @@ html[data-route="settings"] #page-settings {
     align-items: flex-start;
     gap: 12px;
     padding: var(--space-4);
-    background: var(--surface);
-    border: 1px solid var(--border);
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
     border-radius: var(--radius-lg);
-    box-shadow: var(--shadow-xs);
+    box-shadow: var(--glass-shadow);
+    -webkit-backdrop-filter: var(--glass-filter);
+    backdrop-filter: var(--glass-filter);
 }
 
 .document-grid .document-item:hover,
 .document-grid .document-card:hover {
     border-color: var(--accent-border);
-    box-shadow: var(--shadow-md);
+    box-shadow: var(--glass-shadow-hover);
 }
 
 .document-grid .document-info {
@@ -1852,9 +1989,11 @@ html[data-route="settings"] #page-settings {
 .document-list.list-view {
     display: block;
     padding: 4px var(--space-4);
-    background: var(--surface);
-    border: 1px solid var(--border);
-    box-shadow: var(--shadow-xs);
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    box-shadow: var(--glass-shadow);
+    -webkit-backdrop-filter: var(--glass-filter);
+    backdrop-filter: var(--glass-filter);
 }
 
 
@@ -1878,11 +2017,13 @@ html[data-route="settings"] #page-settings {
     min-height: 0;
     padding-bottom: var(--space-3);
     overflow: hidden;
-    background: var(--surface);
-    border: 1px solid var(--border);
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
     border-radius: var(--radius-lg);
-    box-shadow: var(--shadow-xs);
+    box-shadow: var(--glass-shadow);
     transition: var(--t-colors);
+    -webkit-backdrop-filter: var(--glass-filter);
+    backdrop-filter: var(--glass-filter);
 }
 
 .chat-context {
@@ -1965,9 +2106,10 @@ html[data-route="settings"] #page-settings {
 .message-content {
     min-width: 0;
     padding: 10px 14px;
-    background: var(--surface-2);
+    background: var(--glass-inner);
     border: 1px solid var(--border);
     border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-xs);
     font-size: 14px;
     line-height: 1.6;
     overflow-wrap: anywhere;
@@ -1978,7 +2120,7 @@ html[data-route="settings"] #page-settings {
 }
 
 .message.user .message-content {
-    background: var(--accent);
+    background: var(--accent-grad);
     border-color: transparent;
     border-top-right-radius: 4px;
     color: var(--on-accent);
@@ -2062,6 +2204,7 @@ html[data-route="settings"] #page-settings {
     border: 1px solid var(--border-strong);
     border-radius: var(--radius-lg);
     transition: var(--t-colors);
+    box-shadow: var(--shadow-xs);
 }
 
 .chat-form:focus-within {
@@ -2113,11 +2256,13 @@ html[data-route="settings"] #page-settings {
     min-height: 0;
     padding: var(--space-4);
     overflow: hidden;
-    background: var(--surface);
-    border: 1px solid var(--border);
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
     border-radius: var(--radius-lg);
-    box-shadow: var(--shadow-xs);
+    box-shadow: var(--glass-shadow);
     transition: var(--t-colors);
+    -webkit-backdrop-filter: var(--glass-filter);
+    backdrop-filter: var(--glass-filter);
 }
 
 .sources-panel h3 {
@@ -2141,7 +2286,7 @@ html[data-route="settings"] #page-settings {
 
 .source-card {
     padding: var(--space-3);
-    background: var(--surface-2);
+    background: var(--glass-inner);
     border: 1px solid var(--border);
     border-radius: var(--radius-md);
     transition: var(--t-colors);
@@ -2150,6 +2295,7 @@ html[data-route="settings"] #page-settings {
 .source-card:hover,
 .source-card.active {
     border-color: var(--accent-border);
+    box-shadow: var(--shadow-sm);
 }
 
 .source-header {
@@ -2333,9 +2479,10 @@ html[data-route="settings"] #page-settings {
 .quiz-question {
     margin-bottom: var(--space-4);
     padding: var(--space-5);
-    background: var(--surface);
+    background: var(--glass-inner);
     border: 1px solid var(--border);
     border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-xs);
 }
 
 .quiz-question:last-child {
@@ -2362,7 +2509,7 @@ html[data-route="settings"] #page-settings {
     width: 100%;
     padding: 12px 14px;
     text-align: left;
-    background: var(--surface);
+    background: var(--glass-inner);
     border: 1px solid var(--border-strong);
     border-radius: var(--radius-md);
     color: var(--text);
@@ -2703,6 +2850,7 @@ html[data-route="settings"] #page-settings {
     padding: 5px 8px;
     border-radius: 6px;
     background: var(--tooltip-bg);
+    box-shadow: var(--shadow-md);
     color: var(--tooltip-text);
     font-size: 11.5px;
     font-weight: 500;
@@ -2742,6 +2890,8 @@ html[data-route="settings"] #page-settings {
     place-items: center;
     padding: var(--space-4);
     background: var(--overlay);
+    -webkit-backdrop-filter: blur(6px);
+    backdrop-filter: blur(6px);
 }
 
 .modal {
@@ -2751,15 +2901,19 @@ html[data-route="settings"] #page-settings {
     margin: auto;
     padding: 0;
     overflow: auto;
-    background: var(--surface);
-    border: 1px solid var(--border);
+    background: var(--glass-bg-strong);
+    border: 1px solid var(--glass-border);
     border-radius: var(--radius-xl);
     box-shadow: var(--shadow-lg);
     color: var(--text);
+    -webkit-backdrop-filter: var(--glass-filter-strong);
+    backdrop-filter: var(--glass-filter-strong);
 }
 
 dialog.modal::backdrop {
     background: var(--overlay);
+    -webkit-backdrop-filter: blur(6px);
+    backdrop-filter: blur(6px);
 }
 
 .modal-header {
@@ -2836,14 +2990,16 @@ dialog.modal::backdrop {
     align-items: flex-start;
     gap: 10px;
     padding: 12px 14px;
-    background: var(--surface);
-    border: 1px solid var(--border);
+    background: var(--glass-bg-strong);
+    border: 1px solid var(--glass-border);
     border-left: 3px solid var(--accent);
     border-radius: var(--radius-lg);
     box-shadow: var(--shadow-md);
     font-size: 13px;
     pointer-events: auto;
     animation: toast-in .2s ease-out;
+    -webkit-backdrop-filter: var(--glass-filter-strong);
+    backdrop-filter: var(--glass-filter-strong);
 }
 
 .toast-success { border-left-color: var(--success); }
@@ -2898,9 +3054,37 @@ dialog.modal::backdrop {
     30%           { opacity: 1;   transform: translateY(-3px); }
 }
 
+@keyframes modal-in {
+    from { opacity: 0; transform: translateY(8px) scale(.98); }
+    to   { opacity: 1; transform: none; }
+}
+
 @keyframes toast-in {
     from { opacity: 0; transform: translateY(8px); }
     to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Backend status light (see .status-dot::after) */
+@keyframes status-pulse {
+    0%        { transform: scale(1); opacity: var(--pulse-peak, .4); }
+    75%, 100% { transform: scale(var(--pulse-scale, 2.4)); opacity: 0; }
+}
+
+@keyframes status-blink {
+    0%, 100% { opacity: 1; }
+    50%      { opacity: .45; }
+}
+
+/* Dashboard sections: gentle fade + rise (see section 16) */
+@keyframes page-section-in {
+    from { opacity: 0; transform: translateY(12px); }
+    to   { opacity: 1; transform: none; }
+}
+
+/* Welcome banner glow drift (see section 16) */
+@keyframes welcome-glow {
+    from { transform: translate3d(0, 0, 0) scale(1);        opacity: .75; }
+    to   { transform: translate3d(-48px, 36px, 0) scale(1.18); opacity: 1; }
 }
 
 
@@ -3503,3 +3687,136 @@ dialog.modal::backdrop {
 #chatHistory .chat-history-row > .chat-history-delete {
     flex: 0 0 30px;
 }
+
+
+/* ==========================================================================
+   16. PHASE 1 VISUAL POLISH
+   Everything that moves is gated on prefers-reduced-motion: no-preference, so
+   reduced-motion users keep the original static look. Tokens: --t-lift and
+   --t-press (section 1), --welcome-glow. Keyframes: section 13.
+   ========================================================================== */
+
+@media (prefers-reduced-motion: no-preference) {
+
+    /* Dashboard sections fade in and rise one after another. fill-mode "backwards"
+       holds the start state during the delay and leaves no transform behind. */
+    #page-dashboard > section {
+        animation: page-section-in .5s ease-out backwards;
+    }
+
+    /* Other pages use the same gentle entrance when they become active.
+       The route selector makes the animation restart after each navigation. */
+    html[data-route="documents"] #page-documents,
+    html[data-route="assistant"] #page-assistant,
+    html[data-route="summarizer"] #page-summarizer,
+    html[data-route="quiz"] #page-quiz,
+    html[data-route="compare"] #page-compare,
+    html[data-route="settings"] #page-settings {
+        animation: page-section-in .5s ease-out both;
+    }
+
+    #page-dashboard > section:nth-of-type(2) { animation-delay: .06s; }
+    #page-dashboard > section:nth-of-type(3) { animation-delay: .12s; }
+    #page-dashboard > section:nth-of-type(4) { animation-delay: .18s; }
+    #page-dashboard > section:nth-of-type(5) { animation-delay: .24s; }
+
+    /* Welcome banner: soft lilac glow drifting behind the text (.welcome is isolated,
+       so z-index -1 sits above its gradient and below its content). */
+    .welcome::before {
+        content: "";
+        position: absolute;
+        top: -140px;
+        right: -80px;
+        z-index: -1;
+        width: 380px;
+        height: 380px;
+        border-radius: 50%;
+        background: radial-gradient(circle, var(--welcome-glow) 0%, transparent 65%);
+        pointer-events: none;
+        animation: welcome-glow 9s ease-in-out infinite alternate;
+    }
+
+    /* Button press */
+    .btn:active:not(:disabled),
+    .icon-btn:active:not(:disabled),
+    .new-chat:active {
+        transform: scale(.97);
+    }
+}
+
+/* Card hover lift: only on devices that can really hover (no stuck lifts on touch).
+   Grid-view document cards only; the dashboard list rows stay flat. */
+@media (hover: hover) and (prefers-reduced-motion: no-preference) {
+    .stat-card:hover {
+        box-shadow: var(--glass-shadow-hover);
+    }
+
+    .stat-card:hover,
+    .feature-card:hover,
+    .document-grid .document-item:hover,
+    .document-grid .document-card:hover {
+        transform: translateY(-3px);
+    }
+}
+
+
+/* ==========================================================================
+   17. GLASS FALLBACKS & USER PREFERENCES
+   Glass is progressive enhancement: where backdrop blur is unavailable, or the
+   person asks for more contrast or less transparency, every glass layer falls
+   back to the solid surface tokens. Layout and colour contract are unchanged.
+   ========================================================================== */
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    :root,
+    [data-theme="light"],
+    [data-theme="dark"] {
+        --glass-bg: var(--surface);
+        --glass-bg-strong: var(--surface);
+        --glass-inner: var(--surface-2);
+        --topbar-bg: var(--surface);
+        --input-bg: var(--surface);
+    }
+}
+
+@media (prefers-contrast: more), (prefers-reduced-transparency: reduce) {
+    :root,
+    [data-theme="light"],
+    [data-theme="dark"] {
+        --glass-filter: none;
+        --glass-filter-strong: none;
+        --glass-bg: var(--surface);
+        --glass-bg-strong: var(--surface);
+        --glass-inner: var(--surface-2);
+        --glass-border: var(--border-strong);
+        --topbar-bg: var(--surface);
+        --input-bg: var(--surface);
+    }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+    .modal {
+        animation: modal-in .22s cubic-bezier(.2, .8, .2, 1);
+    }
+}
+
+/* ==========================================================================
+   18. SMALL-SCREEN GLASS PERFORMANCE REFINEMENT
+   Keep the frosted appearance while reducing blur cost on narrow devices.
+   ========================================================================== */
+
+@media (max-width: 700px) {
+    .sidebar,
+    .topbar,
+    .card,
+    .stat-card,
+    .feature-card,
+    .chat-panel,
+    .sources-panel,
+    .modal,
+    dialog.modal {
+        -webkit-backdrop-filter: blur(10px) saturate(145%);
+        backdrop-filter: blur(10px) saturate(145%);
+    }
+}
+
