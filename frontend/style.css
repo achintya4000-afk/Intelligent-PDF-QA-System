@@ -2298,6 +2298,13 @@ html[data-route="settings"] #page-settings {
     box-shadow: var(--shadow-sm);
 }
 
+.source-card.active {
+    background: var(--accent-soft);
+    outline: 2px solid var(--accent-border);
+    outline-offset: 2px;
+    scroll-margin: 12px;
+}
+
 .source-header {
     display: flex;
     align-items: center;

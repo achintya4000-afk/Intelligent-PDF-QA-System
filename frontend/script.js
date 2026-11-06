@@ -1154,32 +1154,43 @@
         toast('All chat history deleted.', 'success');
     }
 
-    function renderSafeMarkdown(target, source) {
-        // Small, dependency-free Markdown subset. All raw HTML is escaped first.
+    function renderSafeMarkdown(target, source, sources = []) {
+        // Escape untrusted content before adding the limited Markdown and citation markup.
+        const sourceIds = new Set(
+            (Array.isArray(sources) ? sources : []).map((item, index) => {
+                const id = typeof item.source_id === 'string' ? item.source_id : `S${index + 1}`;
+                return /^S\d+$/.test(id) ? id : null;
+            }).filter(Boolean)
+        );
         const escaped = escapeHTML(source || '');
         const blocks = escaped.split(/\n{2,}/).map(block => {
             const lines = block.split('\n');
             const heading = block.match(/^(#{1,3})\s+(.+)$/);
-            if (heading) return `<h${heading[1].length}>${formatInlineMarkdown(heading[2])}</h${heading[1].length}>`;
+            if (heading) return `<h${heading[1].length}>${formatInlineMarkdown(heading[2], sourceIds)}</h${heading[1].length}>`;
             if (lines.every(line => /^[-*]\s+/.test(line))) {
-                return `<ul>${lines.map(line => `<li>${formatInlineMarkdown(line.replace(/^[-*]\s+/, ''))}</li>`).join('')}</ul>`;
+                return `<ul>${lines.map(line => `<li>${formatInlineMarkdown(line.replace(/^[-*]\s+/, ''), sourceIds)}</li>`).join('')}</ul>`;
             }
             if (lines.every(line => /^\d+\.\s+/.test(line))) {
-                return `<ol>${lines.map(line => `<li>${formatInlineMarkdown(line.replace(/^\d+\.\s+/, ''))}</li>`).join('')}</ol>`;
+                return `<ol>${lines.map(line => `<li>${formatInlineMarkdown(line.replace(/^\d+\.\s+/, ''), sourceIds)}</li>`).join('')}</ol>`;
             }
-            return `<p>${lines.map(formatInlineMarkdown).join('<br>')}</p>`;
+            return `<p>${lines.map(line => formatInlineMarkdown(line, sourceIds)).join('<br>')}</p>`;
         });
         target.innerHTML = blocks.join('');
     }
 
-    function formatInlineMarkdown(text) {
-        return text
+    function formatInlineMarkdown(text, sourceIds = new Set()) {
+        const formatted = text
             .replace(/`([^`]+)`/g, '<code>$1</code>')
             .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
             .replace(/\*([^*]+)\*/g, '<em>$1</em>');
+
+        return formatted.replace(/\[(S\d+)\]/g, (match, sourceId) => {
+            if (!sourceIds.has(sourceId)) return match;
+            return `<button type="button" class="citation" data-action="open-source" data-source-id="${sourceId}" aria-label="Open source ${sourceId}">${sourceId}</button>`;
+        });
     }
 
-    function renderMessage(message) {
+    function renderMessage(message, messageIndex = -1) {
         const isUser = message.role === 'user';
 
         const wrapper = document.createElement('div');
@@ -1187,6 +1198,7 @@
         wrapper.className =
             `message ${isUser ? 'user' : 'assistant'}` +
             `${message.error ? ' error' : ''}`;
+        wrapper.dataset.messageIndex = String(messageIndex);
 
         const avatar = document.createElement('div');
         avatar.className = 'message-avatar';
@@ -1200,7 +1212,7 @@
 
         const body = document.createElement('div');
         body.className = 'message-body';
-        renderSafeMarkdown(body, message.content || '');
+        renderSafeMarkdown(body, message.content || '', message.sources || []);
         content.appendChild(body);
 
         if (
@@ -1212,8 +1224,12 @@
 
             sourceLine.className = 'message-sources';
 
-            sourceLine.textContent = message.sources.map(source =>
-                `Page ${source.page ?? source.page_number ?? '?'}`
+            const uniquePages = [...new Set(message.sources.map(source =>
+                String(source.page ?? source.page_number ?? '?')
+            ))];
+
+            sourceLine.textContent = uniquePages.map(page =>
+                `Page ${page}`
             ).join(' · ');
 
             content.appendChild(sourceLine);
@@ -1243,7 +1259,7 @@
             `;
         } else {
             messages.replaceChildren(
-                ...chat.messages.map(renderMessage)
+                ...chat.messages.map((message, index) => renderMessage(message, index))
             );
 
             messages.scrollTop = messages.scrollHeight;
@@ -1289,6 +1305,11 @@
         }
 
         list.innerHTML = sources.map((source, index) => {
+            const sourceId =
+                typeof source.source_id === 'string' && /^S\d+$/.test(source.source_id)
+                    ? source.source_id
+                    : `S${index + 1}`;
+
             const page =
                 source.page ??
                 source.page_number ??
@@ -1307,10 +1328,10 @@
                 '';
 
             return `
-                <article class="source-card">
+                <article class="source-card" data-source-id="${escapeHTML(sourceId)}">
                     <div class="source-header">
                         <strong class="source-title">
-                            ${escapeHTML(title)}
+                            ${escapeHTML(title)} (${escapeHTML(sourceId)})
                         </strong>
 
                         <span class="source-page">
@@ -2312,6 +2333,38 @@
         // Centralised event delegation for navigation and actions.
 
         document.addEventListener('click', event => {
+            const citation = event.target.closest('[data-action="open-source"]');
+
+            if (citation) {
+                const chat = activeChat();
+                const messageElement = citation.closest('.message');
+                const messageIndex = Number(messageElement?.dataset.messageIndex);
+                const message = Number.isInteger(messageIndex)
+                    ? chat?.messages?.[messageIndex]
+                    : null;
+                const sourceId = citation.dataset.sourceId;
+
+                if (!message || !Array.isArray(message.sources)) {
+                    toast('The source for this citation is not available.', 'warning');
+                    return;
+                }
+
+                renderSources(message.sources);
+                const sourceCard = Array.from(
+                    byId('sourcesList').querySelectorAll('.source-card')
+                ).find(card => card.dataset.sourceId === sourceId);
+
+                if (!sourceCard) {
+                    toast('The cited source could not be found.', 'warning');
+                    return;
+                }
+
+                sourceCard.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                sourceCard.classList.add('active');
+                window.setTimeout(() => sourceCard.classList.remove('active'), 2200);
+                return;
+            }
+
             const pageLink = event.target.closest('[data-page]');
 
             if (pageLink) {
