@@ -19,3 +19,6 @@ data/indexes/*
 
 # IDE
 .vscode/
+
+# Generated document metadata
+data/documents.json
