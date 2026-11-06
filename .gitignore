@@ -1,0 +1,21 @@
+# Python environment
+.venv/
+venv/
+
+# Environment variables
+.env
+
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Uploaded PDFs
+data/uploads/*
+!data/uploads/.gitkeep
+
+# FAISS indexes
+data/indexes/*
+!data/indexes/.gitkeep
+
+# IDE
+.vscode/
