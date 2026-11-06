@@ -1,12 +1,17 @@
+
 import json
 import shutil
 from pathlib import Path
+from uuid import UUID
 
 import pymupdf
 
 from backend.pdf_processing.extractor import extract_text_from_pdf
 from backend.pdf_processing.chunker import chunk_text
 from backend.pdf_processing.metadata import create_document_metadata
+
+from backend.retrieval.faiss_search import create_faiss_index
+
 from backend.storage.document_store import (
     save_document,
     get_document,
@@ -31,37 +36,47 @@ def upload_document(
     chunk_size: int = 1000
 ) -> dict:
     """
-    Process and store an uploaded PDF document.
+    Upload and process a PDF document.
 
-    Steps:
-    1. Validate the uploaded file.
+    Processing steps:
+    1. Validate the uploaded PDF.
     2. Extract text from the PDF.
-    3. Divide extracted text into chunks.
-    4. Create document metadata.
-    5. Save the PDF and chunks.
-    6. Save metadata in the document store.
+    3. Divide text into chunks.
+    4. Generate document metadata.
+    5. Save the original PDF.
+    6. Save extracted chunks.
+    7. Generate embeddings and create a FAISS index.
+    8. Save document metadata.
 
-    Returns the document metadata.
+    Returns the completed document metadata.
     """
 
     # Validate filename
-    if not filename or not filename.strip():
+    if not isinstance(filename, str) or not filename.strip():
         raise ValueError("Filename is required.")
 
     if not filename.lower().endswith(".pdf"):
         raise ValueError("Only PDF files are supported.")
 
-    # Validate file content
-    if not pdf_bytes:
-        raise ValueError("The uploaded PDF is empty.")
+    # Validate PDF content
+    if not isinstance(pdf_bytes, bytes) or not pdf_bytes:
+        raise ValueError("The uploaded PDF is empty or invalid.")
 
     if len(pdf_bytes) > MAX_FILE_SIZE:
         raise ValueError("PDF size must not exceed 20 MB.")
 
-    # Extract text from the PDF
+    # Validate chunk size
+    if (
+        not isinstance(chunk_size, int)
+        or isinstance(chunk_size, bool)
+        or chunk_size <= 0
+    ):
+        raise ValueError("Chunk size must be a positive integer.")
+
+    # Extract text from PDF
     extracted_pages = extract_text_from_pdf(pdf_bytes)
 
-    # Divide extracted text into chunks
+    # Generate text chunks
     chunks = chunk_text(
         extracted_pages,
         chunk_size=chunk_size
@@ -70,17 +85,20 @@ def upload_document(
     if not chunks:
         raise ValueError("No readable text chunks were generated.")
 
-    # Get PDF page count
+    # Get total PDF pages
     pdf_document = pymupdf.open(
         stream=pdf_bytes,
         filetype="pdf"
     )
-    total_pages = len(pdf_document)
-    pdf_document.close()
+
+    try:
+        total_pages = len(pdf_document)
+    finally:
+        pdf_document.close()
 
     # Create document metadata
     metadata = create_document_metadata(
-        filename=filename,
+        filename=filename.strip(),
         file_size=len(pdf_bytes),
         total_pages=total_pages,
         total_chunks=len(chunks)
@@ -88,10 +106,11 @@ def upload_document(
 
     document_id = metadata["id"]
 
-    # Create storage paths using the generated document ID
+    # Create storage paths
     pdf_path = UPLOAD_DIR / f"{document_id}.pdf"
     document_index_dir = INDEX_DIR / document_id
     chunks_path = document_index_dir / "chunks.json"
+    faiss_index_path = document_index_dir / "faiss.index"
 
     try:
         # Create storage directories
@@ -103,17 +122,49 @@ def upload_document(
 
         # Save extracted chunks
         with chunks_path.open("w", encoding="utf-8") as file:
-            json.dump(chunks, file, indent=4, ensure_ascii=False)
+            json.dump(
+                chunks,
+                file,
+                indent=4,
+                ensure_ascii=False
+            )
 
-        # Store relative paths in metadata
-        metadata["file_path"] = pdf_path.relative_to(BASE_DIR).as_posix()
-        metadata["chunks_path"] = chunks_path.relative_to(BASE_DIR).as_posix()
+        # Generate embeddings and create FAISS index
+        indexed_chunks = create_faiss_index(
+            document_id=document_id,
+            chunks=chunks
+        )
 
-        # Save metadata in JSON document store
+        # Verify indexing
+        if indexed_chunks != len(chunks):
+            raise RuntimeError(
+                "FAISS indexing failed: chunk count mismatch."
+            )
+
+        # Verify index file exists
+        if not faiss_index_path.is_file():
+            raise RuntimeError(
+                "FAISS index file was not created."
+            )
+
+        # Add storage paths to metadata
+        metadata["file_path"] = (
+            pdf_path.relative_to(BASE_DIR).as_posix()
+        )
+
+        metadata["chunks_path"] = (
+            chunks_path.relative_to(BASE_DIR).as_posix()
+        )
+
+        metadata["faiss_index_path"] = (
+            faiss_index_path.relative_to(BASE_DIR).as_posix()
+        )
+
+        # Save metadata only after successful processing
         save_document(metadata)
 
     except Exception:
-        # Remove partially saved files if processing/storage fails
+        # Remove partially saved files if processing fails
         if pdf_path.exists():
             pdf_path.unlink()
 
@@ -124,10 +175,22 @@ def upload_document(
 
     return metadata
 
+
 def delete_document_service(document_id: str) -> bool:
     """
-    Delete a document, its original PDF, and its stored chunks.
+    Delete a document, its original PDF,
+    its chunks, its FAISS index, and its metadata.
     """
+
+    # Validate document ID
+    if not isinstance(document_id, str):
+        raise ValueError("Invalid document ID.")
+
+    try:
+        # Our generated document IDs are UUIDs
+        UUID(document_id)
+    except ValueError:
+        raise ValueError("Invalid document ID.")
 
     # Check whether the document exists
     document = get_document(document_id)
@@ -135,15 +198,15 @@ def delete_document_service(document_id: str) -> bool:
     if document is None:
         return False
 
-    # Build storage paths using the document ID
+    # Build storage paths using the validated ID
     pdf_path = UPLOAD_DIR / f"{document_id}.pdf"
     document_index_dir = INDEX_DIR / document_id
 
-    # Delete the original PDF
+    # Delete original PDF
     if pdf_path.exists():
         pdf_path.unlink()
 
-    # Delete the document's chunks and index directory
+    # Delete chunks and FAISS index
     if document_index_dir.exists():
         shutil.rmtree(document_index_dir)
 

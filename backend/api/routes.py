@@ -5,6 +5,11 @@ from backend.services.document_service import (
     upload_document,
     delete_document_service
 )
+
+from backend.services.reindex_service import (
+    reindex_existing_documents
+)
+
 from backend.storage.document_store import get_all_documents
 
 
@@ -78,6 +83,25 @@ async def upload_pdf(
 
     finally:
         await file.close()
+
+
+# Re-index existing documents
+@router.post("/api/documents/reindex")
+async def reindex_documents():
+
+    try:
+        result = reindex_existing_documents()
+
+        return {
+            "message": "Document re-indexing process completed.",
+            "summary": result
+        }
+
+    except Exception as error:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Unable to complete document re-indexing: {str(error)}"
+        )
 
 
 # Delete a document
