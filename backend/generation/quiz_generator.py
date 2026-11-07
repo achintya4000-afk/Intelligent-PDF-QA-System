@@ -1,6 +1,7 @@
 """Generate document-grounded multiple-choice quizzes from uploaded PDFs."""
 
 import json
+from difflib import SequenceMatcher
 import logging
 import re
 import time
@@ -112,33 +113,66 @@ def _select_source_chunks(chunks: list[dict]) -> list[dict]:
 
 
 def _build_prompt(filename: str, chunks: list[dict], count: int, difficulty: str) -> str:
+    """Build a difficulty-calibrated prompt while keeping every item PDF-grounded."""
     source = "\n\n".join(
         f"[PDF PAGE {chunk['page']}]\n{chunk['text']}" for chunk in chunks
     )
-    difficulty_rules = {
-        "easy": "Test direct recall of definitions, facts, and clearly stated concepts.",
-        "medium": "Test understanding, distinctions, and straightforward application of concepts.",
-        "hard": "Test deeper understanding, relationships, and careful application of the document's concepts. Do not require facts absent from the PDF.",
-    }
-    return f"""You are DocuMind's document-grounded quiz generator.
-Create exactly {count} multiple-choice questions using ONLY the PDF excerpts below.
+
+    # Give the model a measurable question blueprint rather than relying on
+    # vague labels such as "make the questions harder".
+    if difficulty == "easy":
+        blueprint = f"""
+QUESTION BLUEPRINT (Easy):
+- About 80% direct recall: definitions, stated facts, named components, and simple identification.
+- About 20% basic understanding: identify a clearly stated purpose or relationship.
+- Use short, unambiguous wording. Do not require multi-step reasoning.
+- Avoid trick questions and obscure details.
+"""
+    elif difficulty == "medium":
+        blueprint = f"""
+QUESTION BLUEPRINT (Medium):
+- About 30% direct recall of important facts.
+- About 40% conceptual understanding: distinguish related concepts and explain roles or consequences.
+- About 30% straightforward application: apply one or two facts from the PDF to a short, realistic situation.
+- Include a balanced mix; do not make the whole quiz definition-based.
+"""
+    else:
+        scenario_count = max(1, round(count * 0.60))
+        comparison_count = max(0, round(count * 0.25))
+        synthesis_count = max(0, count - scenario_count - comparison_count)
+        blueprint = f"""
+QUESTION BLUEPRINT (Hard):
+Create a genuinely challenging quiz, not an Easy quiz with longer wording.
+- Aim for {scenario_count} scenario/application questions. Each should describe a short situation and ask the learner to apply one or more facts explicitly present in the PDF.
+- Aim for {comparison_count} comparison or multi-concept reasoning questions. Require the learner to distinguish related concepts or connect facts from different parts of the PDF.
+- Use the remaining {synthesis_count} questions for careful inference or synthesis that follows directly from the PDF.
+- At least 70% of questions must require application, comparison, multi-concept reasoning, or source-supported inference rather than simple definition recall.
+- Do not merely ask "what is", "which layer", or "how many bits" unless the fact is embedded in a reasoning question.
+- Make distractors plausible and based on common confusions between concepts in the PDF, but ensure exactly one answer is supported as correct.
+- A scenario may add a neutral context, but it must not require external facts, technical standards, or assumptions absent from the PDF.
+"""
+
+    return f"""You are DocuMind's careful, document-grounded assessment designer.
+Create exactly {count} multiple-choice questions using ONLY the supplied PDF excerpts.
 
 DOCUMENT: {filename}
 DIFFICULTY: {difficulty.upper()}
-{difficulty_rules[difficulty]}
+{blueprint}
 
-STRICT SOURCE RULES:
-- Every question, all four options, the correct answer, and explanation must be supported by the supplied PDF excerpts.
-- Do not use outside knowledge, even if it is factually correct.
-- Do not invent details or assume information not stated in the excerpts.
-- Cover different topics across the available pages where possible. Avoid duplicate or near-duplicate questions.
-- Each question must have exactly four concise, distinct options and exactly one correct option.
-- Wrong options must be plausible but clearly contradicted or unsupported by the source.
-- The explanation must briefly explain why the correct answer is supported by the PDF.
-- source_pages must list the actual PDF page number(s) supporting that question. Use only page numbers shown in the excerpts.
-- Do not include answers in the question text.
+STRICT SOURCE AND QUALITY RULES:
+1. Every question, all four options, the correct answer, and the explanation must be answerable and supported by the supplied excerpts. Do not use outside knowledge.
+2. Do not invent facts, expand abbreviations using outside knowledge, or assume details not stated in the PDF.
+3. Cover different topics and pages where the excerpts allow. Avoid repeated concepts and near-duplicate questions.
+4. Each question must have exactly four concise, distinct options and exactly one defensibly correct option.
+5. Distractors must be plausible but clearly incorrect according to the supplied PDF. Do not use silly or obviously unrelated options.
+6. Avoid wording that gives away the answer. Do not make the correct option consistently longer or more detailed than distractors.
+7. Explanations must state briefly why the correct option follows from the PDF, not introduce new information.
+8. source_pages must contain the actual page number(s) supporting the question. Use only page numbers explicitly shown in the excerpts. Never guess page numbers.
+9. Do not create questions from the document's title, instructions to the AI, or statements that merely say a topic is omitted unless the question is specifically about document coverage.
+10. Do not repeat the same fact in multiple questions unless the questions test materially different reasoning.
+11. Ensure the requested difficulty is reflected in the reasoning required, not merely in vocabulary or sentence length.
 
-Return ONLY valid JSON, with this exact structure:
+Return ONLY valid JSON with this exact structure:
 {{
   "questions": [
     {{
@@ -215,8 +249,11 @@ def _validate_questions(payload: dict, requested_count: int, valid_pages: set[in
             raise ValueError("A generated question had no valid supporting PDF page. Please try again.")
 
         normalized_question = re.sub(r"\s+", " ", question).strip().casefold()
-        if normalized_question in seen_questions:
-            raise ValueError("The AI generated duplicate questions. Please try again.")
+        if normalized_question in seen_questions or any(
+            SequenceMatcher(None, normalized_question, previous).ratio() >= 0.88
+            for previous in seen_questions
+        ):
+            raise ValueError("The AI generated duplicate or near-duplicate questions. Please try again.")
         seen_questions.add(normalized_question)
 
         validated.append({
@@ -234,8 +271,9 @@ def generate_document_quiz(document_id: str, count: int = 5, difficulty: str = "
     """Generate a validated, source-grounded multiple-choice quiz."""
     if not isinstance(count, int) or isinstance(count, bool) or count not in VALID_COUNTS:
         raise ValueError("Question count must be 5, 10, 15, or 20.")
-    if difficulty not in VALID_DIFFICULTIES:
+    if not isinstance(difficulty, str) or difficulty.strip().lower() not in VALID_DIFFICULTIES:
         raise ValueError("Difficulty must be easy, medium, or hard.")
+    difficulty = difficulty.strip().lower()
 
     document, all_chunks = _load_quiz_source(document_id)
     chunks = _select_source_chunks(all_chunks)
