@@ -2610,6 +2610,13 @@ html[data-route="settings"] #page-settings {
     color: var(--text-muted);
 }
 
+.quiz-source {
+    margin-top: 8px;
+    color: var(--accent-text);
+    font-size: 12px;
+    font-weight: 600;
+}
+
 
 /* ==========================================================================
    10. COMPARE PDFS

@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 
 from backend.services.chat_service import process_chat_question
 from backend.generation.summarizer import generate_document_summary
+from backend.generation.quiz_generator import generate_document_quiz
 
 from backend.services.document_service import (
     upload_document,
@@ -50,6 +51,13 @@ class SummaryRequest(BaseModel):
     document_id: str
     length: str = "medium"
     format: str = "bullets"
+
+
+# Quiz Generator request model
+class QuizRequest(BaseModel):
+    document_id: str
+    count: Literal[5, 10, 15, 20] = 5
+    difficulty: Literal["easy", "medium", "hard"] = "medium"
 
 
 # Health check
@@ -197,6 +205,33 @@ def summarize_document(request: SummaryRequest):
         raise HTTPException(
             status_code=500,
             detail="An unexpected error occurred while generating the summary."
+        )
+
+
+# Generate a multiple-choice quiz grounded in an uploaded PDF
+@router.post("/api/quiz/generate")
+def generate_quiz(request: QuizRequest):
+    try:
+        return generate_document_quiz(
+            document_id=request.document_id,
+            count=request.count,
+            difficulty=request.difficulty,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error))
+    except FileNotFoundError as error:
+        raise HTTPException(status_code=404, detail=str(error))
+    except RuntimeError as error:
+        logger.error("Quiz generation failed: %s", error)
+        raise HTTPException(
+            status_code=502,
+            detail="Unable to generate a valid quiz. Please try again.",
+        )
+    except Exception:
+        logger.exception("Unexpected error while generating a quiz")
+        raise HTTPException(
+            status_code=500,
+            detail="An unexpected error occurred while generating the quiz.",
         )
 
 

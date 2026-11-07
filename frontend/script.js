@@ -2012,7 +2012,7 @@
             option.disabled = false;
         });
 
-        $$('.quiz-feedback, .quiz-explanation').forEach(el => {
+        $$('.quiz-feedback, .quiz-explanation, .quiz-source').forEach(el => {
             el.remove();
         });
 
@@ -2037,7 +2037,10 @@
                 q.correctAnswer
             ),
 
-            explanation: safeText(q.explanation, '')
+            explanation: safeText(q.explanation, ''),
+            sourcePages: Array.isArray(q.source_pages)
+                ? [...new Set(q.source_pages.map(Number).filter(page => Number.isInteger(page) && page > 0))]
+                : []
         })).filter(q =>
             q.options.length >= 2 &&
             Number.isInteger(q.answerIndex) &&
@@ -2184,6 +2187,13 @@
                 explanation.textContent = question.explanation;
 
                 section.appendChild(explanation);
+            }
+
+            if (question.sourcePages.length) {
+                const source = document.createElement('p');
+                source.className = 'quiz-source';
+                source.textContent = `PDF source: Page${question.sourcePages.length > 1 ? 's' : ''} ${question.sourcePages.join(', ')}`;
+                section.appendChild(source);
             }
         });
 
