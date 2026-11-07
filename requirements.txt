@@ -8,3 +8,4 @@ faiss-cpu
 rank-bm25
 numpy
 google-genai
+google-cloud-vision
