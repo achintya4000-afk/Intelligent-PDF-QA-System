@@ -99,7 +99,7 @@
         }
     };
 
-    const ANSWER_TYPES = ['pdf', 'general_ai', 'hybrid', 'web', 'pdf_web'];
+    const ANSWER_TYPES = ['pdf', 'general_ai', 'hybrid'];
 
     const normaliseMode = value =>
         typeof value === 'string' && Object.prototype.hasOwnProperty.call(RESPONSE_MODES, value)
@@ -165,8 +165,6 @@
                             role: message.role,
                             content: String(message.content ?? ''),
                             ...(Array.isArray(message.sources) ? { sources: message.sources } : {}),
-                            ...(Array.isArray(message.webSources) ? { webSources: normaliseWebSources(message.webSources) } : {}),
-                            ...(message.webSearch && typeof message.webSearch === 'object' ? { webSearch: normaliseWebSearch(message.webSearch) } : {}),
                             ...(ANSWER_TYPES.includes(message.answerType) ? { answerType: message.answerType } : {}),
                             ...(typeof message.supported === 'boolean' ? { supported: message.supported } : {}),
                             ...(typeof message.fallbackReason === 'string' ? { fallbackReason: message.fallbackReason } : {}),
@@ -236,62 +234,6 @@
         return typeof value === 'string' && value.trim()
             ? value.trim()
             : fallback;
-    }
-
-    // Only plain http(s) links may become clickable. Anything else
-    // (javascript:, data:, malformed text) returns ''.
-    function safeExternalUrl(value) {
-        if (typeof value !== 'string' || !value.trim() || value.length > 2048) return '';
-
-        try {
-            const parsed = new URL(value.trim());
-            if (!['http:', 'https:'].includes(parsed.protocol)) return '';
-            if (parsed.username || parsed.password) return '';
-            return parsed.href;
-        } catch (error) {
-            return '';
-        }
-    }
-
-    // Web sources come from the backend (Gemini grounding metadata) or from
-    // saved chats. Every field is re-validated before it is stored or shown.
-    function normaliseWebSources(list) {
-        if (!Array.isArray(list)) return [];
-
-        return list.slice(0, 10).map((item, index) => {
-            if (!item || typeof item !== 'object') return null;
-
-            const url = safeExternalUrl(item.url);
-            if (!url) return null;
-
-            return {
-                source_id: typeof item.source_id === 'string' && /^W\d+$/.test(item.source_id)
-                    ? item.source_id
-                    : `W${index + 1}`,
-                title: safeText(item.title, '').slice(0, 200),
-                url,
-                domain: safeText(item.domain, '').slice(0, 120),
-                snippets: Array.isArray(item.snippets)
-                    ? item.snippets.filter(text => typeof text === 'string' && text.trim())
-                        .slice(0, 3).map(text => text.slice(0, 300))
-                    : [],
-                cited: item.cited === true
-            };
-        }).filter(Boolean);
-    }
-
-    function normaliseWebSearch(info) {
-        const status = ['used', 'no_sources', 'failed', 'not_used'].includes(info?.status)
-            ? info.status
-            : 'not_used';
-
-        return {
-            status,
-            queries: Array.isArray(info?.queries)
-                ? info.queries.filter(query => typeof query === 'string' && query.trim())
-                    .slice(0, 8).map(query => query.slice(0, 200))
-                : []
-        };
     }
 
     function formatBytes(bytes) {
@@ -1375,7 +1317,7 @@
         const sourceIds = new Set(
             (Array.isArray(sources) ? sources : []).map((item, index) => {
                 const id = typeof item.source_id === 'string' ? item.source_id : `S${index + 1}`;
-                return /^[SW]\d+$/.test(id) ? id : null;
+                return /^S\d+$/.test(id) ? id : null;
             }).filter(Boolean)
         );
         // Line-by-line rendering. The model often puts a heading, bullets and plain
@@ -1451,17 +1393,16 @@
         // Handles single citations such as [S1] and grouped citations such as
         // [S1, S3] (saved by older versions of the backend). Every label that has a
         // matching source becomes a button; unknown labels stay as plain text.
-        // [W1] markers point to web sources and get a web-styled button.
         return formatted.replace(
-            /\[\s*([SW]\d+(?:\s*[,;]\s*[SW]\d+)*)\s*\]/g,
+            /\[\s*(S\d+(?:\s*[,;]\s*S\d+)*)\s*\]/g,
             (match, group) => {
-                const ids = group.match(/[SW]\d+/g) || [];
+                const ids = group.match(/S\d+/g) || [];
 
                 if (!ids.some(sourceId => sourceIds.has(sourceId))) return match;
 
                 return ids.map(sourceId => (
                     sourceIds.has(sourceId)
-                        ? `<button type="button" class="citation${sourceId.startsWith('W') ? ' citation--web' : ''}" data-action="open-source" data-source-id="${sourceId}" aria-label="Open ${sourceId.startsWith('W') ? 'web ' : ''}source ${sourceId}">${sourceId}</button>`
+                        ? `<button type="button" class="citation" data-action="open-source" data-source-id="${sourceId}" aria-label="Open source ${sourceId}">${sourceId}</button>`
                         : `[${sourceId}]`
                 )).join(' ');
             }
@@ -1491,16 +1432,6 @@
             badgeClass = 'answer-badge--hybrid';
             icon = 'layers';
             note = 'Cited statements come from your PDF. The section marked "general AI" does not.';
-        } else if (message.answerType === 'web') {
-            badgeText = 'Web-Grounded Answer';
-            badgeClass = 'answer-badge--web';
-            icon = 'globe';
-            note = 'Based on Google Search results, not on your PDF. Check the web sources.';
-        } else if (message.answerType === 'pdf_web') {
-            badgeText = 'PDF + Web Answer';
-            badgeClass = 'answer-badge--hybrid';
-            icon = 'layers';
-            note = 'Cited statements come from your PDF. The section marked "web" comes from Google Search, not from your PDF.';
         } else if (message.answerType === 'general_ai') {
             badgeText = 'General AI Answer';
             badgeClass = 'answer-badge--general';
@@ -1517,15 +1448,6 @@
         } else {
             // Messages saved by older versions have no answer type.
             return null;
-        }
-
-        // Honest status when current information was wanted but not retrieved.
-        const webStatus = message.webSearch?.status;
-
-        if (webStatus === 'failed') {
-            note = `${note} Live web search was unavailable, so this answer may be out of date.`.trim();
-        } else if (webStatus === 'no_sources') {
-            note = `${note} No web sources were returned, so this answer may not reflect the latest information.`.trim();
         }
 
         const meta = document.createElement('div');
@@ -1561,12 +1483,7 @@
             return;
         }
 
-        renderSources(
-            message?.sources || [],
-            undefined,
-            message?.webSources || [],
-            message?.webSearch || null
-        );
+        renderSources(message?.sources || []);
     }
 
     function renderMessage(message, messageIndex = -1) {
@@ -1599,12 +1516,7 @@
         const body = document.createElement('div');
         body.className = 'message-body';
         // A general AI answer has no PDF sources, so no citation buttons are made.
-        // Citation buttons exist for PDF sources [S1] and web sources [W1].
-        renderSafeMarkdown(
-            body,
-            message.content || '',
-            isGeneral ? [] : [...(message.sources || []), ...(message.webSources || [])]
-        );
+        renderSafeMarkdown(body, message.content || '', isGeneral ? [] : (message.sources || []));
         content.appendChild(body);
 
         if (
@@ -1626,23 +1538,6 @@
             ).join(' · ');
 
             content.appendChild(sourceLine);
-        }
-
-        if (
-            !isGeneral &&
-            Array.isArray(message.webSources) &&
-            message.webSources.length &&
-            state.settings.showSources
-        ) {
-            const webLine = document.createElement('div');
-            webLine.className = 'message-sources';
-
-            const labels = [...new Set(message.webSources.map(source =>
-                source.domain || source.title || 'Web source'
-            ))].slice(0, 4);
-
-            webLine.textContent = `Web: ${labels.join(' · ')}`;
-            content.appendChild(webLine);
         }
 
         wrapper.append(avatar, content);
@@ -1689,48 +1584,13 @@
         refreshIcons();
     }
 
-    function renderWebSourceCard(source) {
-        const title = source.title || source.domain || 'Web source';
-
-        const snippets = (source.snippets || []).slice(0, 2).map(text => `
-                    <p class="source-text">&ldquo;${escapeHTML(text)}&rdquo;</p>
-                `).join('');
-
-        // The link was validated by safeExternalUrl(); it still gets escaped.
-        return `
-                <article class="source-card source-card--web" data-source-id="${escapeHTML(source.source_id)}">
-                    <div class="source-header">
-                        <strong class="source-title">
-                            ${escapeHTML(title)}
-                        </strong>
-
-                        <span class="source-page source-page--web">
-                            ${escapeHTML(source.source_id)}
-                        </span>
-                    </div>
-
-                    <a class="source-link" href="${escapeHTML(source.url)}" target="_blank" rel="noopener noreferrer nofollow">
-                        ${escapeHTML(source.domain || 'Open source')} &#8599;
-                    </a>
-                    ${snippets}
-                </article>
-            `;
-    }
-
-    function renderSources(
-        sources,
-        emptyMessage = 'Retrieved passages will appear here after you ask a question.',
-        webSources = [],
-        webSearch = null
-    ) {
+    function renderSources(sources, emptyMessage = 'Retrieved passages will appear here after you ask a question.') {
         const list = byId('sourcesList');
-
-        const safeWebSources = normaliseWebSources(webSources);
-        const hasPdfSources = Array.isArray(sources) && sources.length > 0;
 
         if (
             !state.settings.showSources ||
-            (!hasPdfSources && !safeWebSources.length)
+            !Array.isArray(sources) ||
+            !sources.length
         ) {
             list.innerHTML = `
                 <div class="empty-state compact">
@@ -1747,7 +1607,7 @@
             return;
         }
 
-        const pdfHtml = (hasPdfSources ? sources : []).map((source, index) => {
+        list.innerHTML = sources.map((source, index) => {
             const sourceId =
                 typeof source.source_id === 'string' && /^S\d+$/.test(source.source_id)
                     ? source.source_id
@@ -1788,29 +1648,6 @@
                 </article>
             `;
         }).join('');
-
-        // Web sources are kept apart from PDF sources. With only PDF
-        // sources the panel looks exactly as before.
-        if (!safeWebSources.length) {
-            list.innerHTML = pdfHtml;
-            return;
-        }
-
-        const queries = normaliseWebSearch(webSearch).queries;
-        const queryLine = queries.length
-            ? `<p class="source-queries">Searched for: ${escapeHTML(queries.join(' · '))}</p>`
-            : '';
-
-        const pdfSection = hasPdfSources
-            ? `<h4 class="sources-section-title">PDF Sources</h4>${pdfHtml}`
-            : '';
-
-        list.innerHTML = `
-            ${pdfSection}
-            <h4 class="sources-section-title">Web Sources</h4>
-            ${queryLine}
-            ${safeWebSources.map(renderWebSourceCard).join('')}
-        `;
     }
 
     function showTyping() {
@@ -1964,22 +1801,10 @@
                     ? result.sources
                     : (result.citations || []));
 
-            // Web sources are re-validated here; links that are not plain
-            // http(s) URLs are dropped.
-            const webSources = (answerType === 'web' || answerType === 'pdf_web')
-                ? normaliseWebSources(result.web_sources)
-                : [];
-
-            const webSearch = result.web_search && typeof result.web_search === 'object'
-                ? normaliseWebSearch(result.web_search)
-                : null;
-
             const assistantMessage = {
                 role: 'assistant',
                 content: answer,
                 sources,
-                ...(webSources.length ? { webSources } : {}),
-                ...(webSearch && webSearch.status !== 'not_used' ? { webSearch } : {}),
                 mode,
                 ...(answerType ? { answerType } : {}),
                 ...(typeof result.supported === 'boolean' ? { supported: result.supported } : {}),
@@ -2729,12 +2554,12 @@
                     : null;
                 const sourceId = citation.dataset.sourceId;
 
-                if (!message || (!Array.isArray(message.sources) && !Array.isArray(message.webSources))) {
+                if (!message || !Array.isArray(message.sources)) {
                     toast('The source for this citation is not available.', 'warning');
                     return;
                 }
 
-                renderSources(message.sources || [], undefined, message.webSources || [], message.webSearch || null);
+                renderSources(message.sources);
                 const sourceCard = Array.from(
                     byId('sourcesList').querySelectorAll('.source-card')
                 ).find(card => card.dataset.sourceId === sourceId);

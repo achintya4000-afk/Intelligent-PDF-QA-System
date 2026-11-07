@@ -1,4 +1,3 @@
-import logging
 from uuid import UUID
 
 from backend.storage.document_store import get_document
@@ -11,24 +10,12 @@ from backend.generation.hybrid_answer_generator import (
     generate_hybrid_answer
 )
 from backend.generation.evidence_checker import assess_retrieval_evidence
-from backend.generation.web_grounding import (
-    WEB_SECTION_TITLE,
-    WEB_STATUS_FAILED,
-    WEB_STATUS_NOT_USED,
-    WEB_STATUS_USED,
-    asks_for_web_with_pdf,
-    generate_web_answer,
-    needs_web_search
-)
-
-
-logger = logging.getLogger("uvicorn.error")
 
 
 # Supported response modes (the exact values the API accepts).
-MODE_AUTO = "auto"    # PDF first, general AI / web when the PDF has no evidence
-MODE_PDF = "pdf"      # PDF evidence only (never uses the web)
-MODE_AI = "ai"        # General AI (+ web when needed), the PDF is never searched
+MODE_AUTO = "auto"    # PDF first, general AI when the PDF has no evidence
+MODE_PDF = "pdf"      # PDF evidence only
+MODE_AI = "ai"        # General AI only, the PDF is never searched
 
 RESPONSE_MODES = (MODE_AUTO, MODE_PDF, MODE_AI)
 
@@ -37,10 +24,6 @@ ANSWER_TYPE_PDF = "pdf"
 ANSWER_TYPE_GENERAL_AI = "general_ai"
 # PDF-cited answer plus a clearly labelled general AI section (Auto only).
 ANSWER_TYPE_HYBRID = "hybrid"
-# Answer built from Google Search Grounding results (no PDF involved).
-ANSWER_TYPE_WEB = "web"
-# PDF-cited answer plus a clearly labelled web section (Auto only).
-ANSWER_TYPE_PDF_WEB = "pdf_web"
 
 # Why Auto mode answered without the PDF ("fallback_reason").
 FALLBACK_NO_PDF = "no_pdf_selected"
@@ -261,37 +244,23 @@ def validate_document_id(document_id) -> str:
     return document_id
 
 
-def no_web_info() -> dict:
-    """Web information of an answer that did not use the web."""
-
-    return {"status": WEB_STATUS_NOT_USED, "sources": [], "queries": []}
-
-
 def build_result(
     mode: str,
     answer_type: str,
     result: dict,
     document_id: str | None,
     question: str,
-    fallback_reason: str | None = None,
-    web: dict | None = None
+    fallback_reason: str | None = None
 ) -> dict:
     """
     Build the chat result in one consistent structure.
 
-    General AI and web answers never carry PDF sources, whatever the
-    caller passes in. Web sources are only kept for answers that really
-    contain web information.
+    General AI answers never carry PDF sources, whatever the caller
+    passes in.
     """
 
-    # Hybrid and PDF+web answers contain real PDF citations in their PDF part.
-    is_pdf_answer = answer_type in (
-        ANSWER_TYPE_PDF, ANSWER_TYPE_HYBRID, ANSWER_TYPE_PDF_WEB
-    )
-
-    web = web or no_web_info()
-
-    has_web_content = answer_type in (ANSWER_TYPE_WEB, ANSWER_TYPE_PDF_WEB)
+    # Hybrid answers contain real PDF citations in their PDF part.
+    is_pdf_answer = answer_type in (ANSWER_TYPE_PDF, ANSWER_TYPE_HYBRID)
 
     return {
         "document_id": document_id if is_pdf_answer else None,
@@ -301,117 +270,8 @@ def build_result(
         "supported": bool(result["supported"]) if is_pdf_answer else False,
         "mode": mode,
         "answer_type": answer_type,
-        "fallback_reason": fallback_reason,
-        "web_sources": web["sources"] if has_web_content else [],
-        "web_search": {
-            "status": web["status"],
-            "queries": web["queries"] if has_web_content else []
-        }
+        "fallback_reason": fallback_reason
     }
-
-
-def answer_without_pdf(
-    question: str,
-    history: list,
-    follow_up_of: str | None
-) -> tuple:
-    """
-    Answer without any PDF evidence (Only AI, and the Auto fallback).
-
-    Google Search Grounding is used only when the question looks
-    time-sensitive (see needs_web_search). Every other question keeps the
-    existing general AI behaviour, so no search is made for it.
-
-    If the grounded request fails, the answer falls back to the normal
-    general answer and the result says so (status "failed"), so the user
-    is never told that an answer is current when it is not.
-
-    Returns (result, answer_type, web_info).
-    """
-
-    if needs_web_search(question, follow_up_of):
-        try:
-            result = generate_web_answer(
-                question=question,
-                history=history,
-                follow_up_of=follow_up_of
-            )
-
-            web = result["web"]
-
-            if web["status"] == WEB_STATUS_USED:
-                return result, ANSWER_TYPE_WEB, web
-
-            # Search tool enabled, but Gemini returned no usable source.
-            # Shown as a general answer with a "could not be verified" note.
-            return result, ANSWER_TYPE_GENERAL_AI, web
-
-        except Exception as error:
-            logger.error("Web-grounded answer failed: %s", error)
-
-            result = generate_general_answer(
-                question=question,
-                history=history,
-                follow_up_of=follow_up_of
-            )
-
-            failed = no_web_info()
-            failed["status"] = WEB_STATUS_FAILED
-
-            return result, ANSWER_TYPE_GENERAL_AI, failed
-
-    result = generate_general_answer(
-        question=question,
-        history=history,
-        follow_up_of=follow_up_of
-    )
-
-    return result, ANSWER_TYPE_GENERAL_AI, no_web_info()
-
-
-def add_web_section(
-    question: str,
-    history: list,
-    follow_up_of: str | None,
-    pdf_result: dict
-) -> tuple:
-    """
-    Auto mode: the PDF answered, and the user also asked for current or
-    outside information. Add it as a separate, labelled section.
-
-    The PDF part is never changed. When the web part cannot be retrieved,
-    the PDF answer is returned as it was and the status says why.
-
-    Returns (result, answer_type_is_web_added, web_info).
-    """
-
-    try:
-        web_result = generate_web_answer(
-            question=question,
-            history=history,
-            follow_up_of=follow_up_of,
-            document_companion=True
-        )
-    except Exception as error:
-        logger.error("Web section for Auto answer failed: %s", error)
-
-        failed = no_web_info()
-        failed["status"] = WEB_STATUS_FAILED
-
-        return pdf_result, False, failed
-
-    web = web_result["web"]
-
-    if web["status"] != WEB_STATUS_USED:
-        return pdf_result, False, web
-
-    combined = dict(pdf_result)
-    combined["answer"] = (
-        f"{pdf_result['answer']}\n\n{WEB_SECTION_TITLE}\n\n"
-        f"{web_result['answer']}"
-    )
-
-    return combined, True, web
 
 
 def process_chat_question(
@@ -475,12 +335,14 @@ def process_chat_question(
     # Only AI: the PDF is not searched and not even looked up.
     # ------------------------------------------------------------------
     if mode == MODE_AI:
-        result, answer_type, web = answer_without_pdf(
-            question, conversation_history, follow_up_of
+        result = generate_general_answer(
+            question=question,
+            history=conversation_history,
+            follow_up_of=follow_up_of
         )
 
         return build_result(
-            mode, answer_type, result, None, question, web=web
+            mode, ANSWER_TYPE_GENERAL_AI, result, None, question
         )
 
     # ------------------------------------------------------------------
@@ -493,18 +355,19 @@ def process_chat_question(
                 "Please select or upload a PDF to use Only PDF mode."
             )
 
-        result, answer_type, web = answer_without_pdf(
-            question, conversation_history, follow_up_of
+        result = generate_general_answer(
+            question=question,
+            history=conversation_history,
+            follow_up_of=follow_up_of
         )
 
         return build_result(
             mode,
-            answer_type,
+            ANSWER_TYPE_GENERAL_AI,
             result,
             None,
             question,
-            fallback_reason=FALLBACK_NO_PDF,
-            web=web
+            fallback_reason=FALLBACK_NO_PDF
         )
 
     # ------------------------------------------------------------------
@@ -573,21 +436,8 @@ def process_chat_question(
                 else ANSWER_TYPE_PDF
             )
 
-            web = None
-
-            # The user also asked for current or outside information:
-            # add it as its own labelled section. The PDF part is kept
-            # exactly as it is.
-            if asks_for_web_with_pdf(question):
-                result, web_added, web = add_web_section(
-                    question, conversation_history, follow_up_of, result
-                )
-
-                if web_added:
-                    answer_type = ANSWER_TYPE_PDF_WEB
-
             return build_result(
-                mode, answer_type, result, document_id, question, web=web
+                mode, answer_type, result, document_id, question
             )
 
         # Either Gemini found nothing relevant (abstained) or it wrote
@@ -602,18 +452,18 @@ def process_chat_question(
     else:
         fallback_reason = FALLBACK_INSUFFICIENT_EVIDENCE
 
-    # General AI fallback (with Google Search Grounding when the question
-    # needs current information): no PDF sources, no PDF citations.
-    result, answer_type, web = answer_without_pdf(
-        question, conversation_history, follow_up_of
+    # General AI fallback: no PDF sources, no PDF citations.
+    result = generate_general_answer(
+        question=question,
+        history=conversation_history,
+        follow_up_of=follow_up_of
     )
 
     return build_result(
         mode,
-        answer_type,
+        ANSWER_TYPE_GENERAL_AI,
         result,
         None,
         question,
-        fallback_reason=fallback_reason,
-        web=web
+        fallback_reason=fallback_reason
     )
