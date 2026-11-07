@@ -17,7 +17,6 @@
                                              mode, answer_type: "pdf"|"general_ai", fallback_reason}
    POST /api/summarize          -> {summary}
    POST /api/quiz/generate      -> {questions:[{question, options, answer_index, explanation}]}
-   POST /api/compare            -> {similarities:[], differences:[]}
    DELETE /api/documents/{id}   -> success response
 
    PDFs and API keys are not stored in localStorage. Chat text and settings
@@ -58,8 +57,7 @@
         upload: '/api/documents/upload',
         chat: '/api/chat',
         summarize: '/api/summarize',
-        quiz: '/api/quiz/generate',
-        compare: '/api/compare'
+        quiz: '/api/quiz/generate'
     };
 
     const PAGE_META = {
@@ -68,7 +66,6 @@
         assistant: ['AI Assistant', 'Ask your documents or get general AI answers'],
         summarizer: ['Smart Summarizer', 'Turn long PDFs into concise notes'],
         quiz: ['Quiz Generator', 'Test your understanding with document-based questions'],
-        compare: ['Compare PDFs', 'Find similarities and differences between documents'],
         settings: ['Settings', 'Customize your DocuMind workspace']
     };
 
@@ -504,8 +501,7 @@
         const pages = {
             chat: 'assistant',
             summary: 'summarizer',
-            quiz: 'quiz',
-            compare: 'compare'
+            quiz: 'quiz'
         };
 
         navigate(pages[feature] || 'assistant');
@@ -675,6 +671,12 @@
         setFileStatus('Connecting to the DocuMind backend…');
         setUploadProgress(0, file.name);
 
+        // The progress bar lives on the Dashboard, so tell the user the upload
+        // has started when it was triggered from any other page.
+        if (document.documentElement.dataset.route !== 'dashboard') {
+            toast(`Uploading ${file.name}…`, 'info');
+        }
+
         // XMLHttpRequest provides upload progress.
         // The backend must accept multipart/form-data
         // using the field name "file".
@@ -750,7 +752,11 @@
                     refreshed = state.documents.find(item => item.id === doc.id) || refreshed;
                 }
                 setFileStatus(isDocumentReady(refreshed) ? `${refreshed.name} is ready to use.` : `${refreshed.name} was uploaded and is still processing.`, isDocumentReady(refreshed) ? 'success' : '');
-                navigate('documents');
+                // Dashboard uploads keep their original redirect; uploads started
+                // from other pages (My Documents, Assistant, Summarizer, Quiz) stay put.
+                if (document.documentElement.dataset.route === 'dashboard') {
+                    navigate('documents');
+                }
             }
 
             window.setTimeout(resetUploadProgress, 1400);
@@ -954,9 +960,7 @@
         const ids = [
             'chatDocumentSelect',
             'summaryDocumentSelect',
-            'quizDocumentSelect',
-            'compareDocumentA',
-            'compareDocumentB'
+            'quizDocumentSelect'
         ];
 
         ids.forEach(id => {
@@ -2278,143 +2282,6 @@
         }
     }
 
-    /* ----------------------------- Compare PDFs ---------------------------- */
-
-    function renderCompare(result) {
-        const similarities =
-            result.similarities ||
-            result.common_points ||
-            [];
-
-        const differences =
-            result.differences ||
-            result.distinctions ||
-            [];
-
-        const normaliseList = value =>
-            Array.isArray(value)
-                ? value
-                : (value ? [String(value)] : []);
-
-        const makeSection = (title, className, items) => `
-            <section class="compare-section ${className}">
-                <h4 class="compare-section-title">
-                    ${title}
-                </h4>
-
-                ${
-                    items.length
-                        ? `
-                            <ul>
-                                ${items.map(item => `
-                                    <li>
-                                        ${escapeHTML(
-                                            typeof item === 'string'
-                                                ? item
-                                                : item.text ||
-                                                  item.description ||
-                                                  JSON.stringify(item)
-                                        )}
-                                    </li>
-                                `).join('')}
-                            </ul>
-                        `
-                        : '<p>No details returned by the backend.</p>'
-                }
-            </section>
-        `;
-
-        const output = byId('compareOutput');
-
-        output.innerHTML = `
-            <div class="compare-result">
-                ${makeSection(
-                    'Similarities',
-                    'similarities',
-                    normaliseList(similarities)
-                )}
-
-                ${makeSection(
-                    'Differences',
-                    'differences',
-                    normaliseList(differences)
-                )}
-            </div>
-        `;
-    }
-
-    async function compareDocuments(event) {
-        event.preventDefault();
-
-        const first = byId('compareDocumentA').value;
-        const second = byId('compareDocumentB').value;
-
-        if (!first || !second) {
-            return toast(
-                'Select both PDFs to compare.',
-                'warning'
-            );
-        }
-
-        if (first === second) {
-            return toast(
-                'Choose two different PDFs.',
-                'warning'
-            );
-        }
-
-        const button = byId('compareBtn');
-
-        setButtonLoading(
-            button,
-            true,
-            'Comparing documents'
-        );
-
-        renderOutputMessage(
-            byId('compareOutput'),
-            'Comparing documents',
-            'The backend is analysing both PDFs…'
-        );
-
-        try {
-            const result = await apiRequest(
-                API_ROUTES.compare,
-                {
-                    method: 'POST',
-                    body: JSON.stringify({
-                        document_a_id: first,
-                        document_b_id: second,
-                        focus: byId('compareFocus').value.trim()
-                    })
-                }
-            );
-
-            renderCompare(result);
-
-            toast('Comparison complete.', 'success');
-
-        } catch (error) {
-            renderOutputMessage(
-                byId('compareOutput'),
-                'Could not compare documents',
-                error.message
-            );
-
-            toast(
-                `Comparison failed: ${error.message}`,
-                'error'
-            );
-
-        } finally {
-            setButtonLoading(
-                button,
-                false,
-                'Compare documents'
-            );
-        }
-    }
-
     /* -------------------------------- Settings ----------------------------- */
 
     function fillSettings() {
@@ -2801,10 +2668,7 @@
 
         byId('documentsUploadBtn').addEventListener(
             'click',
-            () => {
-                navigate('dashboard');
-                byId('pdfInput').click();
-            }
+            () => byId('pdfInput').click()
         );
 
         byId('emptyUploadBtn').addEventListener(
@@ -3001,11 +2865,6 @@
                     submitQuiz();
                 }
             }
-        );
-
-        byId('compareForm').addEventListener(
-            'submit',
-            compareDocuments
         );
 
         byId('settingsForm').addEventListener(
