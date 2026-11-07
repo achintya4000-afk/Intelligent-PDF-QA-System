@@ -1,4 +1,5 @@
 import logging
+from typing import Literal
 
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException
 from pydantic import BaseModel, Field
@@ -26,8 +27,17 @@ logger = logging.getLogger("uvicorn.error")
 
 
 # Chat request model
+#
+# "mode" selects how the answer is produced:
+#   auto - search the selected PDF first, fall back to general AI
+#   pdf  - answer only from the selected PDF
+#   ai   - general AI only, the PDF is never searched
+# Any other value is rejected by validation (HTTP 422).
 class ChatRequest(BaseModel):
-    document_id: str
+    # Optional: not needed for "ai" mode, and "auto" works without a PDF.
+    # "pdf" mode returns a clear 400 message when it is missing.
+    document_id: str | None = None
+    mode: Literal["auto", "pdf", "ai"] = "auto"
     conversation_id: str | None = None
     history: list[dict] = Field(default_factory=list)
     question: str
@@ -190,7 +200,7 @@ def summarize_document(request: SummaryRequest):
         )
 
 
-# Chat with an uploaded PDF
+# Chat with an uploaded PDF or with general AI (see ChatRequest.mode)
 @router.post("/api/chat")
 async def chat_with_document(request: ChatRequest):
     try:
@@ -198,12 +208,14 @@ async def chat_with_document(request: ChatRequest):
             document_id=request.document_id,
             question=request.question,
             top_k=request.top_k,
-            history=request.history
+            history=request.history,
+            mode=request.mode
         )
 
         sources = []
 
-        if request.show_sources:
+        # General AI answers never have PDF sources.
+        if request.show_sources and result["answer_type"] in ("pdf", "hybrid"):
             for source in result["sources"]:
                 sources.append({
                     "source_id": source["source_id"],
@@ -216,7 +228,15 @@ async def chat_with_document(request: ChatRequest):
         return {
             "answer": result["answer"],
             "sources": sources,
-            "supported": result["supported"]
+            # True only when the answer is grounded in PDF evidence.
+            "supported": result["supported"],
+            # The mode that was requested: "auto", "pdf" or "ai".
+            "mode": result["mode"],
+            # Where the answer really came from: "pdf", "general_ai", or
+            # "hybrid" (Auto: cited PDF part plus a labelled general AI part).
+            "answer_type": result["answer_type"],
+            # Auto mode only: why the PDF was not used, otherwise null.
+            "fallback_reason": result["fallback_reason"]
         }
 
     except ValueError as error:

@@ -162,7 +162,7 @@
                     <!-- One span per route so the correct text is visible on first paint (see style.css).
                          script.js replaces these with plain text on navigation. Keep in sync with PAGE_META. -->
                     <h2 id="pageTitle"><span data-route-title="dashboard">Dashboard</span><span data-route-title="documents">My Documents</span><span data-route-title="assistant">AI Assistant</span><span data-route-title="summarizer">Smart Summarizer</span><span data-route-title="quiz">Quiz Generator</span><span data-route-title="compare">Compare PDFs</span><span data-route-title="settings">Settings</span></h2>
-                    <p id="pageSubtitle"><span data-route-subtitle="dashboard">Your intelligent document workspace</span><span data-route-subtitle="documents">Manage your indexed PDF library</span><span data-route-subtitle="assistant">Ask questions grounded in your documents</span><span data-route-subtitle="summarizer">Turn long PDFs into concise notes</span><span data-route-subtitle="quiz">Test your understanding with document-based questions</span><span data-route-subtitle="compare">Find similarities and differences between documents</span><span data-route-subtitle="settings">Customize your DocuMind workspace</span></p>
+                    <p id="pageSubtitle"><span data-route-subtitle="dashboard">Your intelligent document workspace</span><span data-route-subtitle="documents">Manage your indexed PDF library</span><span data-route-subtitle="assistant">Ask your documents or get general AI answers</span><span data-route-subtitle="summarizer">Turn long PDFs into concise notes</span><span data-route-subtitle="quiz">Test your understanding with document-based questions</span><span data-route-subtitle="compare">Find similarities and differences between documents</span><span data-route-subtitle="settings">Customize your DocuMind workspace</span></p>
                 </div>
             </div>
 
@@ -383,7 +383,7 @@
                 <div class="page-header">
                     <div>
                         <h1 id="assistantHeading">AI Assistant</h1>
-                        <p>Ask questions and get answers grounded in your documents.</p>
+                        <p>Ask questions about your documents, or get general AI answers.</p>
                     </div>
                     <button class="btn btn-secondary" id="assistantNewChatBtn" type="button">
                         <i data-lucide="plus"></i><span>New Chat</span>
@@ -399,6 +399,27 @@
                                     <option value="">Select a document…</option>
                                 </select>
                             </div>
+                        </div>
+
+                        <div class="chat-mode-bar" id="chatModeBar" data-mode="auto">
+                            <fieldset class="mode-group" id="chatModeGroup">
+                                <legend class="mode-legend">Answer mode</legend>
+                                <div class="mode-options">
+                                    <label class="mode-option" data-mode-option="auto" title="Searches your PDF first and adds clearly labelled general AI detail when useful. If the PDF has no relevant answer, it answers with general AI and tells you.">
+                                        <input type="radio" name="chatMode" value="auto" checked>
+                                        <span class="mode-option-label"><i data-lucide="wand-sparkles" aria-hidden="true"></i><span>Auto</span></span>
+                                    </label>
+                                    <label class="mode-option" data-mode-option="pdf" title="Answers only from the selected PDF, with page citations. Never uses outside knowledge.">
+                                        <input type="radio" name="chatMode" value="pdf">
+                                        <span class="mode-option-label"><i data-lucide="file-text" aria-hidden="true"></i><span>Only PDF</span></span>
+                                    </label>
+                                    <label class="mode-option" data-mode-option="ai" title="Answers with general AI knowledge. Your PDF is not searched and no PDF is needed.">
+                                        <input type="radio" name="chatMode" value="ai">
+                                        <span class="mode-option-label"><i data-lucide="sparkles" aria-hidden="true"></i><span>Only AI</span></span>
+                                    </label>
+                                </div>
+                            </fieldset>
+                            <p class="mode-description" id="chatModeDescription" aria-live="polite">Searches your PDF first, adds general AI detail when useful (clearly labelled), and uses general AI alone if the PDF has no relevant answer.</p>
                         </div>
 
                         <div class="chat-messages" id="chatMessages" role="log" aria-relevant="additions text" aria-label="Conversation">

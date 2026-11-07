@@ -256,6 +256,65 @@ def build_conversation_context(history: list) -> str:
     return "\n".join(conversation_parts)
 
 
+def generate_gemini_text(
+    prompt: str,
+    temperature: float = 0.2,
+    max_output_tokens: int = 2048
+) -> str:
+    """
+    Send a prompt to Gemini and return the non-empty answer text.
+
+    Shared by PDF-grounded and general answer generation so both use
+    the same client, model and retry behaviour.
+
+    One retry: Gemini sometimes fails with a temporary error
+    (rate limit, overload) or returns no text at all.
+
+    Raises:
+        RuntimeError: when no usable text could be generated.
+    """
+
+    client = get_gemini_client()
+
+    last_error = None
+
+    for attempt in range(2):
+        try:
+            response = client.models.generate_content(
+                model=GEMINI_MODEL,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    temperature=temperature,
+                    # Generous limit: a reply cut off in the middle of
+                    # a citation (for example "[S4") cannot be linked.
+                    max_output_tokens=max_output_tokens
+                )
+            )
+
+            text = response.text
+
+            if isinstance(text, str) and text.strip():
+                return text.strip()
+
+            last_error = RuntimeError(
+                "Gemini returned an empty response."
+            )
+
+        except Exception as error:
+            last_error = error
+
+        logger.warning(
+            "Gemini attempt %d failed: %r",
+            attempt + 1,
+            last_error
+        )
+
+        if attempt == 0:
+            time.sleep(2)
+
+    raise RuntimeError(str(last_error))
+
+
 def generate_answer(
     question: str,
     retrieved_chunks: list,
@@ -388,50 +447,11 @@ Provide a clear answer based on the supplied PDF evidence.
 
     try:
 
-        client = get_gemini_client()
-
-        answer = None
-        last_error = None
-
-        # One retry: Gemini sometimes fails with a temporary error
-        # (rate limit, overload) or returns no text at all.
-        for attempt in range(2):
-            try:
-                response = client.models.generate_content(
-                    model=GEMINI_MODEL,
-                    contents=prompt,
-                    config=types.GenerateContentConfig(
-                        temperature=0.2,
-                        # Generous limit: a reply cut off in the middle of
-                        # a citation (for example "[S4") cannot be linked.
-                        max_output_tokens=2048
-                    )
-                )
-
-                text = response.text
-
-                if isinstance(text, str) and text.strip():
-                    answer = text.strip()
-                    break
-
-                last_error = RuntimeError(
-                    "Gemini returned an empty response."
-                )
-
-            except Exception as error:
-                last_error = error
-
-            logger.warning(
-                "Gemini attempt %d failed: %r",
-                attempt + 1,
-                last_error
-            )
-
-            if attempt == 0:
-                time.sleep(2)
-
-        if answer is None:
-            raise RuntimeError(str(last_error))
+        answer = generate_gemini_text(
+            prompt,
+            temperature=0.2,
+            max_output_tokens=2048
+        )
 
         abstained = is_abstention(answer)
 

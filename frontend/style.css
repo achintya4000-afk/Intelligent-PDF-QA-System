@@ -3827,3 +3827,254 @@ dialog.modal::backdrop {
     }
 }
 
+
+
+/* ==========================================================================
+   AI ASSISTANT: RESPONSE MODE SELECTOR AND ANSWER-TYPE BADGES
+   Auto | Only PDF | Only AI. Uses the same tokens as the rest of the app,
+   so light and dark themes work without extra rules.
+   ========================================================================== */
+
+.chat-mode-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2) var(--space-3);
+    padding: 10px var(--space-4);
+    border-bottom: 1px solid var(--border);
+}
+
+.mode-group {
+    flex: 0 0 auto;
+    min-width: 0;
+}
+
+/* Visually hidden, but still announced as the name of the radio group. */
+.mode-legend {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+.mode-options {
+    display: inline-flex;
+    gap: 2px;
+    padding: 3px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-full);
+}
+
+.mode-option {
+    position: relative;
+    display: block;
+    cursor: pointer;
+}
+
+/* The real radio input covers the pill: native keyboard (arrow keys) and
+   screen-reader behaviour is kept, only its look is replaced. */
+.mode-option input {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    opacity: 0;
+    cursor: pointer;
+}
+
+.mode-option-label {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border-radius: var(--radius-full);
+    color: var(--text-muted);
+    font-size: 13px;
+    font-weight: 500;
+    line-height: 1.2;
+    white-space: nowrap;
+    transition: var(--t-colors);
+}
+
+.mode-option-label svg,
+.mode-option-label i[data-lucide] {
+    flex-shrink: 0;
+    width: 14px;
+    height: 14px;
+}
+
+.mode-option:hover .mode-option-label {
+    background: var(--surface-hover);
+    color: var(--text);
+}
+
+.mode-option input:checked + .mode-option-label {
+    background: var(--accent);
+    color: var(--on-accent);
+    box-shadow: var(--shadow-xs);
+}
+
+.mode-option input:focus-visible + .mode-option-label {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
+}
+
+.mode-option input:disabled,
+.mode-option input:disabled ~ * {
+    cursor: not-allowed;
+}
+
+.mode-option:has(input:disabled) {
+    opacity: .55;
+}
+
+.mode-description {
+    flex: 1 1 220px;
+    min-width: 0;
+    margin: 0;
+    color: var(--text-subtle);
+    font-size: 12px;
+    line-height: 1.45;
+}
+
+/* Only AI does not use the PDF: soften the document selector. */
+.chat-context.mode-ai .select-wrap {
+    opacity: .55;
+}
+
+/* Answer-type badge above each assistant answer */
+.answer-meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 8px;
+}
+
+.answer-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 2px 9px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-full);
+    background: var(--surface-2);
+    color: var(--text-muted);
+    font-size: 11.5px;
+    font-weight: 600;
+    line-height: 1.5;
+}
+
+.answer-badge svg,
+.answer-badge i[data-lucide] {
+    flex-shrink: 0;
+    width: 12px;
+    height: 12px;
+}
+
+.answer-badge--pdf {
+    background: var(--accent-soft);
+    border-color: var(--accent-border);
+    color: var(--accent-text);
+}
+
+.answer-badge--general {
+    background: var(--info-soft);
+    border-color: var(--info-border);
+    color: var(--info);
+}
+
+.answer-badge--not-found {
+    background: var(--warning-soft);
+    border-color: var(--warning-border);
+    color: var(--warning);
+}
+
+.answer-note {
+    color: var(--text-subtle);
+    font-size: 11.5px;
+    line-height: 1.4;
+}
+
+@media (max-width: 768px) {
+    .chat-mode-bar {
+        padding: 10px var(--space-4);
+    }
+}
+
+/* Phones: three equal segments across the full width, description below. */
+@media (max-width: 520px) {
+    .chat-mode-bar {
+        gap: 8px;
+        padding: 10px 12px;
+    }
+
+    .mode-group,
+    .mode-options {
+        display: flex;
+        width: 100%;
+    }
+
+    .mode-option {
+        flex: 1 1 0;
+        min-width: 0;
+    }
+
+    .mode-option-label {
+        width: 100%;
+        gap: 5px;
+        padding: 8px 6px;
+        font-size: 12.5px;
+    }
+
+    .mode-description {
+        flex-basis: 100%;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .mode-option-label {
+        transition: none;
+    }
+}
+
+/* The mode bar adds one row to the chat panel; give small screens a little
+   more height so the message area and input keep enough room. */
+@media (max-width: 768px) {
+    .chat-panel {
+        height: min(72dvh, 680px);
+        min-height: 440px;
+    }
+}
+
+@media (max-width: 520px) {
+    .chat-panel {
+        height: 76dvh;
+        min-height: 470px;
+    }
+}
+
+@media (max-height: 620px) and (max-width: 900px) {
+    .chat-panel {
+        height: 92dvh;
+        min-height: 300px;
+    }
+}
+
+.chat-context.mode-ai select {
+    cursor: not-allowed;
+}
+
+.answer-badge--hybrid {
+    background: var(--success-soft);
+    border-color: var(--success-border);
+    color: var(--success);
+}

@@ -12,7 +12,9 @@
    GET  /health                 -> { "status": "ok" }
    GET  /api/documents          -> { "documents": [{id, filename, size, uploaded_at, status}] }
    POST /api/documents/upload   -> multipart field "file"; returns {document:{id,...}}
-   POST /api/chat               -> {answer, sources:[{page, text, title}]}
+   POST /api/chat               -> request {document_id?, mode: "auto"|"pdf"|"ai", question, history, top_k, show_sources}
+                                   response {answer, sources:[{source_id, chunk_id, page, text, title}], supported,
+                                             mode, answer_type: "pdf"|"general_ai", fallback_reason}
    POST /api/summarize          -> {summary}
    POST /api/quiz/generate      -> {questions:[{question, options, answer_index, explanation}]}
    POST /api/compare            -> {similarities:[], differences:[]}
@@ -63,7 +65,7 @@
     const PAGE_META = {
         dashboard: ['Dashboard', 'Your intelligent document workspace'],
         documents: ['My Documents', 'Manage your indexed PDF library'],
-        assistant: ['AI Assistant', 'Ask questions grounded in your documents'],
+        assistant: ['AI Assistant', 'Ask your documents or get general AI answers'],
         summarizer: ['Smart Summarizer', 'Turn long PDFs into concise notes'],
         quiz: ['Quiz Generator', 'Test your understanding with document-based questions'],
         compare: ['Compare PDFs', 'Find similarities and differences between documents'],
@@ -72,6 +74,40 @@
 
     // Own-property check: a hash such as #constructor or #toString must not be treated as a page.
     const isPage = page => Object.prototype.hasOwnProperty.call(PAGE_META, page);
+
+    // Response modes. The keys are the exact values the backend accepts.
+    const DEFAULT_MODE = 'auto';
+
+    const RESPONSE_MODES = {
+        auto: {
+            label: 'Auto',
+            description: 'Searches your PDF first, adds general AI detail when useful (clearly labelled), and uses general AI alone if the PDF has no relevant answer.',
+            placeholder: 'Ask anything. Your PDF is searched first…',
+            hint: 'Auto: answers from your PDF when it has evidence, otherwise from general AI (clearly labelled). Verify important information.',
+            emptyText: 'Ask a question. DocuMind checks your selected PDF first and tells you when it answers from general AI instead.'
+        },
+        pdf: {
+            label: 'Only PDF',
+            description: 'Answers only from the selected PDF, with page citations. Never uses outside knowledge.',
+            placeholder: 'Ask anything about your document…',
+            hint: 'Only PDF: answers use retrieved passages from your PDF. Verify important information.',
+            emptyText: 'Select a document and ask your first question. Answers will cite the source pages.'
+        },
+        ai: {
+            label: 'Only AI',
+            description: 'General AI answers. Your PDF is not searched and no PDF is needed.',
+            placeholder: 'Ask anything…',
+            hint: 'Only AI: general knowledge answers. Your PDF is not used. Verify important information.',
+            emptyText: 'Ask any question. Only AI does not search your PDFs, so no PDF is needed.'
+        }
+    };
+
+    const ANSWER_TYPES = ['pdf', 'general_ai', 'hybrid'];
+
+    const normaliseMode = value =>
+        typeof value === 'string' && Object.prototype.hasOwnProperty.call(RESPONSE_MODES, value)
+            ? value
+            : DEFAULT_MODE;
 
     const $ = (selector, root = document) => root.querySelector(selector);
     const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selector));
@@ -94,6 +130,8 @@
         searchTerm: '',
         healthChecked: false,
         isSendingQuestion: false,
+        // Mode shown while no conversation exists yet. New conversations start in Auto.
+        draftMode: DEFAULT_MODE,
         dragDepth: 0,
         lastDocumentLoadFailed: false,
         requestControllers: new Set()
@@ -121,6 +159,8 @@
                 id: String(chat.id),
                 title: safeText(chat.title, 'New conversation'),
                 documentId: chat.documentId == null ? '' : String(chat.documentId),
+                // Chats saved before response modes existed start in Auto.
+                mode: normaliseMode(chat.mode),
                 messages: Array.isArray(chat.messages)
                     ? chat.messages.filter(message => message && typeof message === 'object' && ['user', 'assistant'].includes(message.role))
                         .slice(-40)
@@ -128,6 +168,10 @@
                             role: message.role,
                             content: String(message.content ?? ''),
                             ...(Array.isArray(message.sources) ? { sources: message.sources } : {}),
+                            ...(ANSWER_TYPES.includes(message.answerType) ? { answerType: message.answerType } : {}),
+                            ...(typeof message.supported === 'boolean' ? { supported: message.supported } : {}),
+                            ...(typeof message.fallbackReason === 'string' ? { fallbackReason: message.fallbackReason } : {}),
+                            ...(Object.prototype.hasOwnProperty.call(RESPONSE_MODES, message.mode) ? { mode: message.mode } : {}),
                             ...(message.error ? { error: true } : {})
                         }))
                     : [],
@@ -1026,12 +1070,14 @@
             id: makeId(),
             title: 'New conversation',
             documentId: '',
+            mode: DEFAULT_MODE,
             messages: [],
             updatedAt: new Date().toISOString()
         };
 
         state.chats.unshift(chat);
         state.activeChatId = chat.id;
+        state.draftMode = DEFAULT_MODE;
 
         persistChats();
         renderChatHistory();
@@ -1045,6 +1091,66 @@
         return state.chats.find(
             chat => chat.id === state.activeChatId
         ) || null;
+    }
+
+    /* ------------------------- Response mode ------------------------- */
+
+    // The mode shown in the selector is the mode of the open conversation
+    // (or the draft mode while no conversation exists). sendQuestion() reads
+    // it from here, so what is displayed is what is sent.
+    function currentMode() {
+        const chat = activeChat();
+        return normaliseMode(chat ? chat.mode : state.draftMode);
+    }
+
+    function setMode(value) {
+        const mode = normaliseMode(value);
+        const chat = activeChat();
+
+        if (chat) {
+            chat.mode = mode;
+            persistChats();
+        } else {
+            state.draftMode = mode;
+        }
+
+        updateModeUI();
+    }
+
+    function updateModeUI() {
+        const mode = currentMode();
+        const meta = RESPONSE_MODES[mode];
+        const group = byId('chatModeGroup');
+
+        if (group) {
+            $$('input[name="chatMode"]', group).forEach(input => {
+                input.checked = input.value === mode;
+                // The mode cannot change while a question is being answered.
+                input.disabled = state.isSendingQuestion;
+            });
+        }
+
+        byId('chatModeBar')?.setAttribute('data-mode', mode);
+        byId('chatContext')?.classList.toggle('mode-ai', mode === 'ai');
+
+        // Only AI never uses a PDF, so the document selector is disabled.
+        // The chosen document is kept and becomes usable again in Auto / Only PDF.
+        const documentSelect = byId('chatDocumentSelect');
+        if (documentSelect) {
+            documentSelect.disabled = mode === 'ai';
+            documentSelect.title = mode === 'ai'
+                ? 'Not used in Only AI mode. Switch to Auto or Only PDF to choose a document.'
+                : '';
+        }
+
+        const description = byId('chatModeDescription');
+        if (description) description.textContent = meta.description;
+
+        const input = byId('chatInput');
+        if (input) input.placeholder = meta.placeholder;
+
+        const hint = byId('chatHint');
+        if (hint) hint.textContent = meta.hint;
     }
 
     function selectChat(id) {
@@ -1153,6 +1259,8 @@
             state.activeChatId = state.chats[0]?.id || null;
         }
 
+        if (!state.chats.length) state.draftMode = DEFAULT_MODE;
+
         persistChats();
         renderChatHistory();
         renderActiveChat();
@@ -1172,6 +1280,7 @@
 
         state.chats = [];
         state.activeChatId = null;
+        state.draftMode = DEFAULT_MODE;
         persistChats();
         renderChatHistory();
         renderActiveChat();
@@ -1275,6 +1384,83 @@
         );
     }
 
+    // Badge that tells the user where an answer came from. Built with
+    // textContent only: nothing from the model is inserted as HTML.
+    function buildAnswerMeta(message) {
+        let badgeText = '';
+        let badgeClass = '';
+        let icon = '';
+        let note = '';
+
+        if (message.answerType === 'pdf') {
+            if (message.supported === false) {
+                badgeText = 'Not Found in PDF';
+                badgeClass = 'answer-badge--not-found';
+                icon = 'file-x';
+            } else {
+                badgeText = 'PDF-Based Answer';
+                badgeClass = 'answer-badge--pdf';
+                icon = 'file-text';
+            }
+        } else if (message.answerType === 'hybrid') {
+            badgeText = 'PDF + General AI Answer';
+            badgeClass = 'answer-badge--hybrid';
+            icon = 'layers';
+            note = 'Cited statements come from your PDF. The section marked "general AI" does not.';
+        } else if (message.answerType === 'general_ai') {
+            badgeText = 'General AI Answer';
+            badgeClass = 'answer-badge--general';
+            icon = 'sparkles';
+
+            const notes = {
+                no_pdf_selected: 'No PDF was selected, so this is not based on a document.',
+                insufficient_evidence: 'Your PDF did not contain enough relevant information, so this is not from the PDF.',
+                unverified_evidence: 'The PDF evidence could not be confirmed for this question, so this is not from the PDF.'
+            };
+
+            note = notes[message.fallbackReason] ||
+                (message.mode === 'ai' ? 'Your PDF was not searched.' : 'Not based on your PDF.');
+        } else {
+            // Messages saved by older versions have no answer type.
+            return null;
+        }
+
+        const meta = document.createElement('div');
+        meta.className = 'answer-meta';
+
+        const badge = document.createElement('span');
+        badge.className = `answer-badge ${badgeClass}`;
+
+        const badgeIcon = document.createElement('i');
+        badgeIcon.setAttribute('data-lucide', icon);
+        badgeIcon.setAttribute('aria-hidden', 'true');
+
+        const badgeLabel = document.createElement('span');
+        badgeLabel.textContent = badgeText;
+
+        badge.append(badgeIcon, badgeLabel);
+        meta.appendChild(badge);
+
+        if (note) {
+            const noteElement = document.createElement('span');
+            noteElement.className = 'answer-note';
+            noteElement.textContent = note;
+            meta.appendChild(noteElement);
+        }
+
+        return meta;
+    }
+
+    // Sources panel content for one assistant message.
+    function renderSourcesForMessage(message) {
+        if (message?.answerType === 'general_ai') {
+            renderSources([], 'General AI answers do not use PDF sources.');
+            return;
+        }
+
+        renderSources(message?.sources || []);
+    }
+
     function renderMessage(message, messageIndex = -1) {
         const isUser = message.role === 'user';
 
@@ -1295,12 +1481,21 @@
         const content = document.createElement('div');
         content.className = 'message-content';
 
+        const isGeneral = message.answerType === 'general_ai';
+
+        if (!isUser && !message.error) {
+            const meta = buildAnswerMeta(message);
+            if (meta) content.appendChild(meta);
+        }
+
         const body = document.createElement('div');
         body.className = 'message-body';
-        renderSafeMarkdown(body, message.content || '', message.sources || []);
+        // A general AI answer has no PDF sources, so no citation buttons are made.
+        renderSafeMarkdown(body, message.content || '', isGeneral ? [] : (message.sources || []));
         content.appendChild(body);
 
         if (
+            !isGeneral &&
             Array.isArray(message.sources) &&
             message.sources.length &&
             state.settings.showSources
@@ -1336,10 +1531,7 @@
                         <i data-lucide="message-square-text"></i>
                     </div>
                     <h4>Start a conversation</h4>
-                    <p>
-                        Select a document and ask your first question.
-                        Answers will cite the source pages.
-                    </p>
+                    <p>${escapeHTML(RESPONSE_MODES[currentMode()].emptyText)}</p>
                 </div>
             `;
         } else {
@@ -1361,12 +1553,13 @@
         }
 
         renderChatHistory();
+        updateModeUI();
         const lastAssistant = [...(chat?.messages || [])].reverse().find(message => message.role === 'assistant');
-        renderSources(lastAssistant?.sources || []);
+        renderSourcesForMessage(lastAssistant);
         refreshIcons();
     }
 
-    function renderSources(sources) {
+    function renderSources(sources, emptyMessage = 'Retrieved passages will appear here after you ask a question.') {
         const list = byId('sourcesList');
 
         if (
@@ -1380,7 +1573,7 @@
                         <i data-lucide="quote"></i>
                     </div>
                     <p>
-                        Retrieved passages will appear here after you ask a question.
+                        ${escapeHTML(emptyMessage)}
                     </p>
                 </div>
             `;
@@ -1466,10 +1659,17 @@
 
         if (state.isSendingQuestion || !question) return;
 
-        if (!documentId) {
+        // Read the mode once. The same value is sent to the backend and stored
+        // with the answer, so the displayed mode is always the mode that was used.
+        const mode = currentMode();
+
+        // Only PDF needs a document. Auto works without one (general AI),
+        // and Only AI never uses one.
+        if (mode === 'pdf' && !documentId) {
             toast(
-                'Select an indexed PDF before asking a question.',
-                'warning'
+                'Only PDF mode needs a PDF. Select or upload an indexed PDF, or switch to Auto or Only AI.',
+                'warning',
+                6000
             );
 
             byId('chatDocumentSelect').focus();
@@ -1477,7 +1677,7 @@
         }
 
         const selectedDoc = state.documents.find(doc => doc.id === documentId);
-        if (selectedDoc && !isDocumentReady(selectedDoc)) {
+        if (mode !== 'ai' && selectedDoc && !isDocumentReady(selectedDoc)) {
             toast('This PDF is still processing. Please wait until indexing is complete.', 'warning');
             return;
         }
@@ -1489,6 +1689,7 @@
                 id: makeId(),
                 title: question.slice(0, 42),
                 documentId,
+                mode,
                 messages: [],
                 updatedAt: new Date().toISOString()
             };
@@ -1533,7 +1734,9 @@
                     // (the embedding model is loaded on first use).
                     timeout: 90000,
                     body: JSON.stringify({
-                        document_id: documentId,
+                        // Only AI never sends a document: the PDF is not used at all.
+                        document_id: mode === 'ai' ? null : (documentId || null),
+                        mode,
                         conversation_id: chat.id,
                         // Error messages are not real answers; never send them as context.
                         history: chat.messages
@@ -1561,17 +1764,31 @@
                 );
             }
 
-            const sources = Array.isArray(result.sources)
-                ? result.sources
-                : (result.citations || []);
+            // What the answer really was (it can differ from the mode in Auto).
+            const answerType = ANSWER_TYPES.includes(result.answer_type)
+                ? result.answer_type
+                : null;
 
-            chat.messages.push({
+            // A general AI answer never carries PDF sources.
+            const sources = answerType === 'general_ai'
+                ? []
+                : (Array.isArray(result.sources)
+                    ? result.sources
+                    : (result.citations || []));
+
+            const assistantMessage = {
                 role: 'assistant',
                 content: answer,
-                sources
-            });
+                sources,
+                mode,
+                ...(answerType ? { answerType } : {}),
+                ...(typeof result.supported === 'boolean' ? { supported: result.supported } : {}),
+                ...(typeof result.fallback_reason === 'string' ? { fallbackReason: result.fallback_reason } : {})
+            };
 
-            if (state.activeChatId === requestChatId) renderSources(sources);
+            chat.messages.push(assistantMessage);
+
+            if (state.activeChatId === requestChatId) renderSourcesForMessage(assistantMessage);
 
             state.counters.questions += 1;
 
@@ -1594,6 +1811,7 @@
         } finally {
             state.isSendingQuestion = false;
             if (state.activeChatId === requestChatId) byId('typingMessage')?.remove();
+            updateModeUI();
 
             setButtonLoading(
                 byId('chatSendBtn'),
@@ -2356,6 +2574,7 @@
 
         state.chats = [];
         state.activeChatId = null;
+        state.draftMode = DEFAULT_MODE;
 
         state.counters = {
             questions: 0,
@@ -2491,11 +2710,13 @@
                     }
                     let chat = activeChat();
                     if (!chat || chat.messages.length) {
-                        chat = { id: makeId(), title: `Questions about ${doc.name}`.slice(0, 42), documentId: id, messages: [], updatedAt: new Date().toISOString() };
+                        chat = { id: makeId(), title: `Questions about ${doc.name}`.slice(0, 42), documentId: id, mode: DEFAULT_MODE, messages: [], updatedAt: new Date().toISOString() };
                         state.chats.unshift(chat);
                         state.activeChatId = chat.id;
                     } else {
                         chat.documentId = id;
+                        // Asking about a document means the PDF should be used.
+                        if (chat.mode === 'ai') chat.mode = DEFAULT_MODE;
                     }
                     persistChats();
                     navigate('assistant');
@@ -2679,6 +2900,21 @@
         byId('chatForm').addEventListener(
             'submit',
             sendQuestion
+        );
+
+        byId('chatModeGroup')?.addEventListener(
+            'change',
+            event => {
+                const target = event.target;
+
+                if (
+                    target instanceof HTMLInputElement &&
+                    target.name === 'chatMode' &&
+                    !state.isSendingQuestion
+                ) {
+                    setMode(target.value);
+                }
+            }
         );
 
         byId('chatDocumentSelect').addEventListener(
