@@ -7,13 +7,17 @@ def create_document_metadata(
     filename: str,
     file_size: int,
     total_pages: int,
-    total_chunks: int
+    total_chunks: int,
+    sha256: str | None = None
 ) -> dict:
     """
     Create metadata for an uploaded PDF document.
+
+    "sha256" is the SHA-256 hex digest of the PDF's file contents. It is
+    used to detect duplicate uploads and is stored only when provided.
     """
 
-    return {
+    metadata = {
         "id": str(uuid4()),
         "filename": filename,
         "size": file_size,
@@ -22,3 +26,8 @@ def create_document_metadata(
         "uploaded_at": datetime.now(timezone.utc).isoformat(),
         "status": "ready"
     }
+
+    if sha256:
+        metadata["sha256"] = sha256
+
+    return metadata

@@ -1752,6 +1752,10 @@ html[data-route="settings"] #page-settings {
     color: var(--danger);
 }
 
+.file-status.warning {
+    color: var(--warning);
+}
+
 /* ---------- Feature cards ---------- */
 .feature-grid {
     display: grid;

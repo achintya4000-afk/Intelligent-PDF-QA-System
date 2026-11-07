@@ -593,7 +593,7 @@
         if (!el) return;
 
         el.textContent = message;
-        el.classList.remove('success', 'error');
+        el.classList.remove('success', 'error', 'warning');
 
         if (type) {
             el.classList.add(type);
@@ -710,6 +710,27 @@
                     : {};
             } catch (_) {
                 payload = { detail: xhr.responseText };
+            }
+
+            // Backend duplicate check (SHA-256 of the file contents): nothing
+            // was created, so show a warning, keep the document list as it is
+            // and let the user upload another PDF.
+            if (xhr.status === 409 && payload?.duplicate) {
+                const existingName = payload.existing_document?.filename;
+                const duplicateMessage = existingName
+                    ? `This PDF has already been uploaded as “${existingName}”.`
+                    : 'This PDF has already been uploaded.';
+
+                setFileStatus(
+                    `Duplicate PDF: ${duplicateMessage} No duplicate document was created.`,
+                    'warning'
+                );
+                toast(`Duplicate PDF — ${duplicateMessage}`, 'warning', 6000);
+
+                resetUploadProgress();
+                byId('pdfInput').value = '';
+
+                return;
             }
 
             if (xhr.status < 200 || xhr.status >= 300) {

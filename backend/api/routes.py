@@ -2,6 +2,7 @@ import logging
 from typing import Literal
 
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from backend.services.chat_service import process_chat_question
@@ -10,7 +11,8 @@ from backend.generation.quiz_generator import generate_document_quiz
 
 from backend.services.document_service import (
     upload_document,
-    delete_document_service
+    delete_document_service,
+    DuplicateDocumentError
 )
 
 from backend.services.reindex_service import (
@@ -116,6 +118,27 @@ async def upload_pdf(
         return {
             "document": public_document
         }
+
+    except DuplicateDocumentError as error:
+        # 409 Conflict: nothing was created or changed. "detail" keeps the
+        # usual error shape so older clients still show the message.
+        existing = error.existing_document
+
+        return JSONResponse(
+            status_code=409,
+            content={
+                "duplicate": True,
+                "detail": str(error),
+                "message": str(error),
+                "existing_document": (
+                    {
+                        "id": existing.get("id"),
+                        "filename": existing.get("filename")
+                    }
+                    if existing else None
+                )
+            }
+        )
 
     except ValueError as error:
         raise HTTPException(
