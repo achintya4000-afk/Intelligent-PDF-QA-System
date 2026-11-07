@@ -2658,10 +2658,7 @@
 
         byId('documentsUploadBtn').addEventListener(
             'click',
-            () => {
-                navigate('dashboard');
-                byId('pdfInput').click();
-            }
+            () => byId('pdfInput').click()
         );
 
         byId('emptyUploadBtn').addEventListener(
