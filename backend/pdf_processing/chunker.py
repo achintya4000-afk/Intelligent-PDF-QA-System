@@ -1,4 +1,3 @@
-
 def chunk_text(
     extracted_pages: list,
     chunk_size: int = 1000,
@@ -9,6 +8,10 @@ def chunk_text(
 
     Each chunk retains its original PDF page number.
     Chunk size and overlap are measured in characters.
+
+    The overlap is automatically reduced for small chunk sizes
+    (at most one quarter of the chunk size), so every chunk size the
+    frontend allows (100 to 4000) works.
     """
 
     if not isinstance(extracted_pages, list):
@@ -17,10 +20,12 @@ def chunk_text(
     if chunk_size <= 0:
         raise ValueError("Chunk size must be greater than zero.")
 
-    if overlap < 0 or overlap >= chunk_size:
-        raise ValueError(
-            "Overlap must be non-negative and smaller than chunk size."
-        )
+    if overlap < 0:
+        raise ValueError("Overlap must not be negative.")
+
+    # A fixed 150-character overlap is invalid for a 100-character chunk.
+    # Limiting it also guarantees that every loop iteration moves forward.
+    overlap = min(overlap, chunk_size // 4)
 
     chunks = []
     chunk_id = 0
@@ -38,10 +43,16 @@ def chunk_text(
             end = min(start + chunk_size, len(text))
 
             # Avoid cutting a word in the middle.
+            # The boundary must be further than "overlap" characters from
+            # the start, otherwise the next start position would not move
+            # forward and the loop could repeat forever.
             if end < len(text):
-                boundary = text.rfind(" ", start, end)
+                boundary = max(
+                    text.rfind(" ", start, end),
+                    text.rfind("\n", start, end)
+                )
 
-                if boundary > start:
+                if boundary > start + overlap:
                     end = boundary
 
             chunk = text[start:end].strip()
@@ -58,6 +69,14 @@ def chunk_text(
             if end >= len(text):
                 break
 
-            start = max(0, end - overlap)
+            # Start the next chunk "overlap" characters back, then move
+            # forward to the beginning of a word so chunks do not start
+            # in the middle of a word.
+            next_start = end - overlap
+
+            while next_start < end and not text[next_start - 1].isspace():
+                next_start += 1
+
+            start = next_start
 
     return chunks

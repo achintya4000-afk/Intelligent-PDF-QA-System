@@ -5,6 +5,21 @@ from backend.retrieval.retriever import retrieve_relevant_chunks
 from backend.generation.answer_generator import generate_answer
 
 
+# Words that show a short question is about the document itself,
+# not about the previous answer ("What does this document say...").
+DOCUMENT_REFERENCE_WORDS = (
+    "document",
+    "pdf",
+    "file",
+    "text",
+    "page",
+    "chapter",
+    "section",
+    "passage",
+    "paper"
+)
+
+
 def validate_history(history: list) -> list:
     """
     Validate and limit conversation history.
@@ -71,7 +86,14 @@ def is_follow_up_question(question: str) -> bool:
         "compare them",
         "difference between them",
         "summarize it",
-        "summarise it"
+        "summarise it",
+        "elaborate",
+        "can you elaborate",
+        "what else",
+        "go on",
+        "continue",
+        "and what about",
+        "how so"
     )
 
     if any(
@@ -90,15 +112,51 @@ def is_follow_up_question(question: str) -> bool:
         "its"
     )
 
-    words = question_lower.split()
+    words = [
+        word.strip(".,?!;:\"'()")
+        for word in question_lower.split()
+    ]
 
     if len(words) <= 7:
+
+        # "What does this document say about DNS?" is a new question
+        # about the document, not a follow-up to the previous answer.
+        if any(word in DOCUMENT_REFERENCE_WORDS for word in words):
+            return False
+
         return any(
-            word.strip(".,?!") in short_follow_up_words
+            word in short_follow_up_words
             for word in words
         )
 
     return False
+
+
+def find_anchor_question(history: list):
+    """
+    Find the question that the current follow-up refers to.
+
+    Chained follow-ups ("What is TCP?" -> "Explain it in simple words"
+    -> "Give me an example") must all point back to the original
+    question. So the most recent user question that is NOT itself a
+    follow-up is used. If every earlier question is a follow-up, the
+    latest one is used as a fallback.
+    """
+
+    previous_user_questions = [
+        message["content"]
+        for message in history
+        if message["role"] == "user"
+    ]
+
+    if not previous_user_questions:
+        return None
+
+    for previous_question in reversed(previous_user_questions):
+        if not is_follow_up_question(previous_question):
+            return previous_question
+
+    return previous_user_questions[-1]
 
 
 def build_retrieval_query(
@@ -109,7 +167,7 @@ def build_retrieval_query(
     Build a retrieval query.
 
     Independent questions use only the current question.
-    Follow-up questions may include the latest previous user question.
+    Follow-up questions are combined with the question they refer to.
     """
 
     if not history:
@@ -118,18 +176,12 @@ def build_retrieval_query(
     if not is_follow_up_question(question):
         return question
 
-    previous_user_questions = [
-        message["content"]
-        for message in history
-        if message["role"] == "user"
-    ]
+    anchor_question = find_anchor_question(history)
 
-    if not previous_user_questions:
+    if not anchor_question:
         return question
 
-    previous_question = previous_user_questions[-1]
-
-    return f"{previous_question} {question}"
+    return f"{anchor_question[:500]} {question}"
 
 
 def process_chat_question(
@@ -202,11 +254,19 @@ def process_chat_question(
         top_k=top_k
     )
 
+    # For a follow-up, tell the answer generator which earlier
+    # question the pronouns ("it", "this") refer to.
+    follow_up_of = None
+
+    if conversation_history and is_follow_up_question(question):
+        follow_up_of = find_anchor_question(conversation_history)
+
     # Generate an answer using Gemini and conversation history.
     result = generate_answer(
         question=question,
         retrieved_chunks=retrieved_chunks,
-        history=conversation_history
+        history=conversation_history,
+        follow_up_of=follow_up_of
     )
 
     return {

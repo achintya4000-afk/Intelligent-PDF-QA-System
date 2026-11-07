@@ -25,6 +25,15 @@
 (() => {
     'use strict';
 
+    // Safety net: if this file is ever loaded twice (for example by a second
+    // <script> tag), a second copy would register every event listener again
+    // and each question would be sent twice. Only the first copy may run.
+    if (window.__documindLoaded) {
+        console.warn('DocuMind: script.js was loaded twice; the second copy is ignored.');
+        return;
+    }
+    window.__documindLoaded = true;
+
     const STORAGE_KEYS = {
         settings: 'documind.settings.v1',
         chats: 'documind.chats.v1',
@@ -1054,10 +1063,25 @@
 
     function persistChats() {
         // Keep browser storage bounded; durable account history belongs in the backend database.
-        state.chats = state.chats.slice(0, 30).map(chat => ({
-            ...chat,
-            messages: (Array.isArray(chat.messages) ? chat.messages : []).slice(-40)
-        }));
+        //
+        // The list is trimmed IN PLACE. Earlier versions replaced every chat with a copy
+        // here. A question that was still waiting for its answer kept a reference to the
+        // old object, so when the answer arrived it was added to a chat that was no longer
+        // in state.chats: the answer was lost and the user message appeared to be sent twice.
+        if (state.chats.length > 30) {
+            state.chats.length = 30;
+        }
+
+        state.chats.forEach(chat => {
+            if (!Array.isArray(chat.messages)) {
+                chat.messages = [];
+            }
+
+            if (chat.messages.length > 40) {
+                chat.messages.splice(0, chat.messages.length - 40);
+            }
+        });
+
         if (!state.chats.some(chat => chat.id === state.activeChatId)) {
             state.activeChatId = state.chats[0]?.id || null;
         }
@@ -1162,20 +1186,68 @@
                 return /^S\d+$/.test(id) ? id : null;
             }).filter(Boolean)
         );
-        const escaped = escapeHTML(source || '');
-        const blocks = escaped.split(/\n{2,}/).map(block => {
-            const lines = block.split('\n');
-            const heading = block.match(/^(#{1,3})\s+(.+)$/);
-            if (heading) return `<h${heading[1].length}>${formatInlineMarkdown(heading[2], sourceIds)}</h${heading[1].length}>`;
-            if (lines.every(line => /^[-*]\s+/.test(line))) {
-                return `<ul>${lines.map(line => `<li>${formatInlineMarkdown(line.replace(/^[-*]\s+/, ''), sourceIds)}</li>`).join('')}</ul>`;
+        // Line-by-line rendering. The model often puts a heading, bullets and plain
+        // sentences in one block without blank lines between them, so every line is
+        // classified on its own instead of classifying whole blocks.
+        const html = [];
+        let listType = null;
+        let paragraph = [];
+
+        const flushParagraph = () => {
+            if (!paragraph.length) return;
+            html.push(`<p>${paragraph.map(line => formatInlineMarkdown(line, sourceIds)).join('<br>')}</p>`);
+            paragraph = [];
+        };
+
+        const closeList = () => {
+            if (!listType) return;
+            html.push(`</${listType}>`);
+            listType = null;
+        };
+
+        escapeHTML(source || '').split('\n').forEach(rawLine => {
+            const line = rawLine.trim();
+
+            if (!line) {
+                flushParagraph();
+                closeList();
+                return;
             }
-            if (lines.every(line => /^\d+\.\s+/.test(line))) {
-                return `<ol>${lines.map(line => `<li>${formatInlineMarkdown(line.replace(/^\d+\.\s+/, ''), sourceIds)}</li>`).join('')}</ol>`;
+
+            const heading = line.match(/^(#{1,3})\s+(.+)$/);
+            const bullet = line.match(/^[-*\u2022]\s+(.+)$/);
+            const numbered = line.match(/^\d+\.\s+(.+)$/);
+
+            if (heading) {
+                flushParagraph();
+                closeList();
+                html.push(`<h${heading[1].length}>${formatInlineMarkdown(heading[2], sourceIds)}</h${heading[1].length}>`);
+                return;
             }
-            return `<p>${lines.map(line => formatInlineMarkdown(line, sourceIds)).join('<br>')}</p>`;
+
+            if (bullet || numbered) {
+                flushParagraph();
+
+                const type = bullet ? 'ul' : 'ol';
+
+                if (listType !== type) {
+                    closeList();
+                    html.push(`<${type}>`);
+                    listType = type;
+                }
+
+                html.push(`<li>${formatInlineMarkdown((bullet || numbered)[1], sourceIds)}</li>`);
+                return;
+            }
+
+            closeList();
+            paragraph.push(line);
         });
-        target.innerHTML = blocks.join('');
+
+        flushParagraph();
+        closeList();
+
+        target.innerHTML = html.join('');
     }
 
     function formatInlineMarkdown(text, sourceIds = new Set()) {
@@ -1184,10 +1256,23 @@
             .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
             .replace(/\*([^*]+)\*/g, '<em>$1</em>');
 
-        return formatted.replace(/\[(S\d+)\]/g, (match, sourceId) => {
-            if (!sourceIds.has(sourceId)) return match;
-            return `<button type="button" class="citation" data-action="open-source" data-source-id="${sourceId}" aria-label="Open source ${sourceId}">${sourceId}</button>`;
-        });
+        // Handles single citations such as [S1] and grouped citations such as
+        // [S1, S3] (saved by older versions of the backend). Every label that has a
+        // matching source becomes a button; unknown labels stay as plain text.
+        return formatted.replace(
+            /\[\s*(S\d+(?:\s*[,;]\s*S\d+)*)\s*\]/g,
+            (match, group) => {
+                const ids = group.match(/S\d+/g) || [];
+
+                if (!ids.some(sourceId => sourceIds.has(sourceId))) return match;
+
+                return ids.map(sourceId => (
+                    sourceIds.has(sourceId)
+                        ? `<button type="button" class="citation" data-action="open-source" data-source-id="${sourceId}" aria-label="Open source ${sourceId}">${sourceId}</button>`
+                        : `[${sourceId}]`
+                )).join(' ');
+            }
+        );
     }
 
     function renderMessage(message, messageIndex = -1) {
@@ -1444,10 +1529,18 @@
                 API_ROUTES.chat,
                 {
                     method: 'POST',
+                    // The first question after the server starts can be slow
+                    // (the embedding model is loaded on first use).
+                    timeout: 90000,
                     body: JSON.stringify({
                         document_id: documentId,
                         conversation_id: chat.id,
-                        history: chat.messages.slice(0, -1).slice(-8).map(message => ({ role: message.role, content: message.content })),
+                        // Error messages are not real answers; never send them as context.
+                        history: chat.messages
+                            .slice(0, -1)
+                            .filter(message => !message.error)
+                            .slice(-8)
+                            .map(message => ({ role: message.role, content: message.content })),
                         question,
                         top_k: Number(state.settings.topK) || 4,
                         show_sources: Boolean(state.settings.showSources)
@@ -2359,7 +2452,7 @@
                     return;
                 }
 
-                sourceCard.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                sourceCard.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
                 sourceCard.classList.add('active');
                 window.setTimeout(() => sourceCard.classList.remove('active'), 2200);
                 return;

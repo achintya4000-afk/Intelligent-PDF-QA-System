@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException
 from pydantic import BaseModel, Field
 
@@ -16,6 +18,10 @@ from backend.storage.document_store import get_all_documents
 
 
 router = APIRouter()
+
+# Uses uvicorn's own logger so errors appear in the terminal where
+# the backend is running. The browser only receives a short message.
+logger = logging.getLogger("uvicorn.error")
 
 
 # Chat request model
@@ -178,13 +184,21 @@ async def chat_with_document(request: ChatRequest):
             detail=str(error)
         )
 
-    except RuntimeError:
+    except RuntimeError as error:
+        # The real reason (for example a Gemini rate limit) is written to
+        # the backend terminal; the browser gets a short, safe message.
+        logger.error("Answer generation failed: %s", error)
+
         raise HTTPException(
             status_code=502,
             detail="Unable to generate an answer. Please try again."
         )
 
     except Exception:
+        logger.exception(
+            "Unexpected error while processing a chat question"
+        )
+
         raise HTTPException(
             status_code=500,
             detail="An unexpected error occurred while processing your question."
