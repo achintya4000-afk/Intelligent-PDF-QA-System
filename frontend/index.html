@@ -29,7 +29,7 @@
         // The stylesheet reads html[data-route] to decide which page, sidebar
         // item and title are shown, so the very first paint is already correct.
         // Keep this list in sync with PAGE_META in script.js.
-        var routes = ['dashboard', 'documents', 'assistant', 'summarizer', 'quiz', 'compare', 'settings'];
+        var routes = ['dashboard', 'documents', 'assistant', 'summarizer', 'quiz', 'settings'];
         var requested = window.location.hash.slice(1);
         document.documentElement.setAttribute(
             'data-route',
@@ -98,11 +98,6 @@
                         <i data-lucide="list-checks"></i><span>Quiz Generator</span>
                     </a>
                 </li>
-                <li>
-                    <a href="#compare" class="nav-link" id="navCompare" data-page="compare">
-                        <i data-lucide="git-compare-arrows"></i><span>Compare PDFs</span>
-                    </a>
-                </li>
             </ul>
 
             <div class="chat-history-heading">
@@ -161,8 +156,8 @@
                 <div class="topbar-title">
                     <!-- One span per route so the correct text is visible on first paint (see style.css).
                          script.js replaces these with plain text on navigation. Keep in sync with PAGE_META. -->
-                    <h2 id="pageTitle"><span data-route-title="dashboard">Dashboard</span><span data-route-title="documents">My Documents</span><span data-route-title="assistant">AI Assistant</span><span data-route-title="summarizer">Smart Summarizer</span><span data-route-title="quiz">Quiz Generator</span><span data-route-title="compare">Compare PDFs</span><span data-route-title="settings">Settings</span></h2>
-                    <p id="pageSubtitle"><span data-route-subtitle="dashboard">Your intelligent document workspace</span><span data-route-subtitle="documents">Manage your indexed PDF library</span><span data-route-subtitle="assistant">Ask your documents or get general AI answers</span><span data-route-subtitle="summarizer">Turn long PDFs into concise notes</span><span data-route-subtitle="quiz">Test your understanding with document-based questions</span><span data-route-subtitle="compare">Find similarities and differences between documents</span><span data-route-subtitle="settings">Customize your DocuMind workspace</span></p>
+                    <h2 id="pageTitle"><span data-route-title="dashboard">Dashboard</span><span data-route-title="documents">My Documents</span><span data-route-title="assistant">AI Assistant</span><span data-route-title="summarizer">Smart Summarizer</span><span data-route-title="quiz">Quiz Generator</span><span data-route-title="settings">Settings</span></h2>
+                    <p id="pageSubtitle"><span data-route-subtitle="dashboard">Your intelligent document workspace</span><span data-route-subtitle="documents">Manage your indexed PDF library</span><span data-route-subtitle="assistant">Ask your documents or get general AI answers</span><span data-route-subtitle="summarizer">Turn long PDFs into concise notes</span><span data-route-subtitle="quiz">Test your understanding with document-based questions</span><span data-route-subtitle="settings">Customize your DocuMind workspace</span></p>
                 </div>
             </div>
 
@@ -307,13 +302,6 @@
                             <p>Create MCQs from your PDFs.</p>
                             <span class="feature-link">Explore <i data-lucide="arrow-right"></i></span>
                         </button>
-
-                        <button class="feature-card" id="featureCompare" type="button" data-feature="compare">
-                            <span class="feature-icon green" aria-hidden="true"><i data-lucide="git-compare-arrows"></i></span>
-                            <h4>Compare PDFs</h4>
-                            <p>Find similarities and differences.</p>
-                            <span class="feature-link">Explore <i data-lucide="arrow-right"></i></span>
-                        </button>
                     </div>
                 </section>
 
@@ -385,9 +373,14 @@
                         <h1 id="assistantHeading">AI Assistant</h1>
                         <p>Ask questions about your documents, or get general AI answers.</p>
                     </div>
-                    <button class="btn btn-secondary" id="assistantNewChatBtn" type="button">
-                        <i data-lucide="plus"></i><span>New Chat</span>
-                    </button>
+                    <div class="page-header-actions">
+                        <button class="btn btn-primary" id="assistantUploadBtn" type="button" data-action="browse">
+                            <i data-lucide="upload"></i><span>Upload PDF</span>
+                        </button>
+                        <button class="btn btn-secondary" id="assistantNewChatBtn" type="button">
+                            <i data-lucide="plus"></i><span>New Chat</span>
+                        </button>
+                    </div>
                 </div>
 
                 <div class="chat-layout" id="chatLayout">
@@ -459,6 +452,9 @@
                         <h1 id="summarizerHeading">Smart Summarizer</h1>
                         <p>Turn long PDFs into concise, structured notes.</p>
                     </div>
+                    <button class="btn btn-primary" id="summarizerUploadBtn" type="button" data-action="browse">
+                        <i data-lucide="upload"></i><span>Upload PDF</span>
+                    </button>
                 </div>
 
                 <div class="tool-layout" id="summarizerLayout">
@@ -525,6 +521,9 @@
                         <h1 id="quizHeading">Quiz Generator</h1>
                         <p>Create multiple-choice questions to test your understanding.</p>
                     </div>
+                    <button class="btn btn-primary" id="quizUploadBtn" type="button" data-action="browse">
+                        <i data-lucide="upload"></i><span>Upload PDF</span>
+                    </button>
                 </div>
 
                 <div class="tool-layout" id="quizLayout">
@@ -582,62 +581,6 @@
                                 <h4>No quiz yet</h4>
                                 <p>Generate a quiz from one of your documents to start practising.</p>
                             </div>
-                        </div>
-                    </div>
-                </div>
-            </section>
-
-            <!-- ===================== COMPARE PDFS ===================== -->
-            <section class="page" id="page-compare" data-page-id="compare" aria-labelledby="compareHeading">
-                <div class="page-header">
-                    <div>
-                        <h1 id="compareHeading">Compare PDFs</h1>
-                        <p>Find similarities and differences between two documents.</p>
-                    </div>
-                </div>
-
-                <form class="compare-form card" id="compareForm" novalidate>
-                    <div class="compare-selects">
-                        <div class="form-group">
-                            <label for="compareDocumentA">First document</label>
-                            <div class="select-wrap">
-                                <select id="compareDocumentA" name="documentA" required>
-                                    <option value="">Select a document…</option>
-                                </select>
-                            </div>
-                        </div>
-
-                        <div class="compare-divider" aria-hidden="true"><i data-lucide="arrow-left-right"></i></div>
-
-                        <div class="form-group">
-                            <label for="compareDocumentB">Second document</label>
-                            <div class="select-wrap">
-                                <select id="compareDocumentB" name="documentB" required>
-                                    <option value="">Select a document…</option>
-                                </select>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="form-group">
-                        <label for="compareFocus">Focus (optional)</label>
-                        <input type="text" id="compareFocus" name="focus" placeholder="e.g. methodology, conclusions, key definitions">
-                    </div>
-
-                    <button class="btn btn-primary" id="compareBtn" type="submit">
-                        <i data-lucide="git-compare-arrows"></i><span>Compare Documents</span>
-                    </button>
-                </form>
-
-                <div class="tool-output card">
-                    <div class="output-header">
-                        <h3>Comparison result</h3>
-                    </div>
-                    <div id="compareOutput" class="output-body">
-                        <div class="empty-state" id="compareEmptyState">
-                            <div class="empty-icon" aria-hidden="true"><i data-lucide="git-compare-arrows"></i></div>
-                            <h4>No comparison yet</h4>
-                            <p>Select two documents to see their similarities and differences.</p>
                         </div>
                     </div>
                 </div>
