@@ -14,6 +14,13 @@ load_dotenv(ENV_FILE)
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite")
 
+# Real-time web answers (Gemini Google Search Grounding).
+# Set WEB_SEARCH_ENABLED=false in .env to switch the feature off completely;
+# DocuMind then behaves exactly as before. Only PDF mode never uses it.
+WEB_SEARCH_ENABLED = os.getenv(
+    "WEB_SEARCH_ENABLED", "true"
+).strip().lower() not in ("0", "false", "no", "off")
+
 
 
 def _float_env(name: str, default: float) -> float:

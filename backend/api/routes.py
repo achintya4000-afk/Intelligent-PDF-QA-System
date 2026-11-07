@@ -1,4 +1,5 @@
 import logging
+import re
 from typing import Literal
 
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException
@@ -33,8 +34,10 @@ logger = logging.getLogger("uvicorn.error")
 #
 # "mode" selects how the answer is produced:
 #   auto - search the selected PDF first, fall back to general AI
-#   pdf  - answer only from the selected PDF
-#   ai   - general AI only, the PDF is never searched
+#          (with Google Search Grounding for current-information questions)
+#   pdf  - answer only from the selected PDF (never uses the web)
+#   ai   - general AI only, the PDF is never searched (Google Search
+#          Grounding for current-information questions)
 # Any other value is rejected by validation (HTTP 422).
 class ChatRequest(BaseModel):
     # Optional: not needed for "ai" mode, and "auto" works without a PDF.
@@ -273,7 +276,9 @@ async def chat_with_document(request: ChatRequest):
         sources = []
 
         # General AI answers never have PDF sources.
-        if request.show_sources and result["answer_type"] in ("pdf", "hybrid"):
+        if request.show_sources and result["answer_type"] in (
+            "pdf", "hybrid", "pdf_web"
+        ):
             for source in result["sources"]:
                 sources.append({
                     "source_id": source["source_id"],
@@ -283,8 +288,29 @@ async def chat_with_document(request: ChatRequest):
                     "title": f"Page {source['page']}"
                 })
 
+        answer_text = result["answer"]
+
+        # Web sources (Google Search Grounding). Only sources that Gemini
+        # returned in its grounding metadata are ever present here.
+        web_sources = []
+
+        if request.show_sources and result["answer_type"] in ("web", "pdf_web"):
+            for source in result.get("web_sources", []):
+                web_sources.append({
+                    "source_id": source["source_id"],
+                    "title": source["title"],
+                    "url": source["url"],
+                    "domain": source["domain"],
+                    "snippets": source["snippets"],
+                    "cited": source["cited"]
+                })
+
+        # With sources hidden, the [W1] markers would point to nothing.
+        if not request.show_sources:
+            answer_text = re.sub(r"\s?\[W\d+\]", "", answer_text)
+
         return {
-            "answer": result["answer"],
+            "answer": answer_text,
             "sources": sources,
             # True only when the answer is grounded in PDF evidence.
             "supported": result["supported"],
@@ -294,7 +320,15 @@ async def chat_with_document(request: ChatRequest):
             # "hybrid" (Auto: cited PDF part plus a labelled general AI part).
             "answer_type": result["answer_type"],
             # Auto mode only: why the PDF was not used, otherwise null.
-            "fallback_reason": result["fallback_reason"]
+            "fallback_reason": result["fallback_reason"],
+            # Web answers: "web" or "pdf_web" are new answer_type values.
+            # Real web sources only; empty when the web was not used.
+            "web_sources": web_sources,
+            # {"status": "used" | "no_sources" | "failed" | "not_used",
+            #  "queries": [...]}
+            "web_search": result.get(
+                "web_search", {"status": "not_used", "queries": []}
+            )
         }
 
     except ValueError as error:
