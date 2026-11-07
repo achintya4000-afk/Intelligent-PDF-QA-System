@@ -1350,6 +1350,16 @@ html[data-route="settings"] #page-settings {
     flex-shrink: 0;
 }
 
+/* Groups several header buttons (e.g. Upload PDF + New Chat) on one row. */
+.page-header-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    flex-shrink: 0;
+    gap: var(--space-3);
+}
+
 .section-heading {
     display: flex;
     align-items: center;
