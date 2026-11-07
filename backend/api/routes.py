@@ -4,6 +4,7 @@ from fastapi import APIRouter, UploadFile, File, Form, HTTPException
 from pydantic import BaseModel, Field
 
 from backend.services.chat_service import process_chat_question
+from backend.generation.summarizer import generate_document_summary
 
 from backend.services.document_service import (
     upload_document,
@@ -32,6 +33,13 @@ class ChatRequest(BaseModel):
     question: str
     top_k: int = Field(default=4, ge=1, le=20)
     show_sources: bool = True
+
+
+# Smart Summarizer request model
+class SummaryRequest(BaseModel):
+    document_id: str
+    length: str = "medium"
+    format: str = "bullets"
 
 
 # Health check
@@ -140,6 +148,45 @@ async def remove_document(document_id: str):
         raise HTTPException(
             status_code=500,
             detail="Unable to delete document files."
+        )
+
+
+# Generate a summary from an uploaded PDF
+@router.post("/api/summarize")
+def summarize_document(request: SummaryRequest):
+    """Generate a document-grounded summary using stored PDF chunks."""
+
+    try:
+        return generate_document_summary(
+            document_id=request.document_id,
+            length=request.length,
+            output_format=request.format
+        )
+
+    except ValueError as error:
+        raise HTTPException(
+            status_code=400,
+            detail=str(error)
+        )
+
+    except FileNotFoundError as error:
+        raise HTTPException(
+            status_code=404,
+            detail=str(error)
+        )
+
+    except RuntimeError as error:
+        logger.error("Summary generation failed: %s", error)
+        raise HTTPException(
+            status_code=502,
+            detail="Unable to generate the summary. Please try again."
+        )
+
+    except Exception:
+        logger.exception("Unexpected error while generating a document summary")
+        raise HTTPException(
+            status_code=500,
+            detail="An unexpected error occurred while generating the summary."
         )
 
 
