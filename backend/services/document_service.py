@@ -1,6 +1,8 @@
 
+import hashlib
 import json
 import shutil
+import threading
 from pathlib import Path
 from uuid import UUID
 
@@ -15,6 +17,8 @@ from backend.retrieval.faiss_search import create_faiss_index
 from backend.storage.document_store import (
     save_document,
     get_document,
+    get_all_documents,
+    set_document_sha256,
     delete_document as delete_document_record
 )
 
@@ -29,6 +33,82 @@ INDEX_DIR = BASE_DIR / "data" / "indexes"
 # Maximum PDF size: 20 MB
 MAX_FILE_SIZE = 20 * 1024 * 1024
 
+# Block size used when hashing PDF contents
+HASH_BLOCK_SIZE = 1024 * 1024
+
+DUPLICATE_MESSAGE = (
+    "This PDF has already been uploaded. "
+    "No duplicate document was created."
+)
+
+# Serialises the duplicate check and remembers hashes that are currently
+# being processed, so two identical uploads arriving together cannot both
+# create a document.
+_upload_guard = threading.Lock()
+_pending_hashes = set()
+
+
+class DuplicateDocumentError(ValueError):
+    """Raised when an uploaded PDF already exists in the library."""
+
+    def __init__(self, existing_document: dict | None = None):
+        super().__init__(DUPLICATE_MESSAGE)
+        self.existing_document = existing_document
+
+
+def calculate_sha256(pdf_bytes: bytes) -> str:
+    """Return the SHA-256 hex digest of PDF bytes, hashed block by block."""
+
+    digest = hashlib.sha256()
+    view = memoryview(pdf_bytes)
+
+    for start in range(0, len(view), HASH_BLOCK_SIZE):
+        digest.update(view[start:start + HASH_BLOCK_SIZE])
+
+    return digest.hexdigest()
+
+
+def _calculate_file_sha256(path: Path) -> str:
+    """Return the SHA-256 hex digest of a file without loading it whole."""
+
+    digest = hashlib.sha256()
+
+    with path.open("rb") as file:
+        for block in iter(lambda: file.read(HASH_BLOCK_SIZE), b""):
+            digest.update(block)
+
+    return digest.hexdigest()
+
+
+def _find_document_by_hash(sha256: str) -> dict | None:
+    """
+    Find a stored document whose PDF has the given SHA-256 hash.
+
+    Documents saved before hashing existed have no "sha256" field. Their
+    hash is calculated once from the original stored PDF and saved on the
+    record. If that PDF is missing or unreadable, the document is skipped;
+    no hash is ever invented for it.
+    """
+
+    for document in get_all_documents():
+        document_id = document.get("id")
+        stored_hash = document.get("sha256")
+
+        if not stored_hash:
+            try:
+                UUID(document_id)
+                pdf_path = UPLOAD_DIR / f"{document_id}.pdf"
+                stored_hash = _calculate_file_sha256(pdf_path)
+            except (ValueError, TypeError, AttributeError, OSError):
+                continue
+
+            set_document_sha256(document_id, stored_hash)
+
+        if isinstance(stored_hash, str) and stored_hash.lower() == sha256:
+            return document
+
+    return None
+
 
 def upload_document(
     filename: str,
@@ -39,7 +119,8 @@ def upload_document(
     Upload and process a PDF document.
 
     Processing steps:
-    1. Validate the uploaded PDF.
+    1. Validate the uploaded PDF and reject duplicates (SHA-256 of the
+       file contents) before any extraction or embedding work.
     2. Extract text from the PDF.
     3. Divide text into chunks.
     4. Generate document metadata.
@@ -49,6 +130,7 @@ def upload_document(
     8. Save document metadata.
 
     Returns the completed document metadata.
+    Raises DuplicateDocumentError if the same PDF is already in the library.
     """
 
     # Validate filename
@@ -72,6 +154,42 @@ def upload_document(
         or chunk_size <= 0
     ):
         raise ValueError("Chunk size must be a positive integer.")
+
+    # Detect duplicates by file contents, not by filename
+    sha256 = calculate_sha256(pdf_bytes)
+
+    with _upload_guard:
+        existing_document = _find_document_by_hash(sha256)
+
+        if existing_document is not None:
+            raise DuplicateDocumentError(existing_document)
+
+        # An identical PDF is already being processed by another request
+        if sha256 in _pending_hashes:
+            raise DuplicateDocumentError()
+
+        _pending_hashes.add(sha256)
+
+    try:
+        return _process_new_document(
+            filename=filename,
+            pdf_bytes=pdf_bytes,
+            chunk_size=chunk_size,
+            sha256=sha256
+        )
+
+    finally:
+        with _upload_guard:
+            _pending_hashes.discard(sha256)
+
+
+def _process_new_document(
+    filename: str,
+    pdf_bytes: bytes,
+    chunk_size: int,
+    sha256: str
+) -> dict:
+    """Extract, chunk, index and store a PDF that is not a duplicate."""
 
     # Extract text from PDF
     extracted_pages = extract_text_from_pdf(pdf_bytes)
@@ -101,7 +219,8 @@ def upload_document(
         filename=filename.strip(),
         file_size=len(pdf_bytes),
         total_pages=total_pages,
-        total_chunks=len(chunks)
+        total_chunks=len(chunks),
+        sha256=sha256
     )
 
     document_id = metadata["id"]

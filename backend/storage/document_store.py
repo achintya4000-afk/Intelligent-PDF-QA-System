@@ -72,6 +72,27 @@ def save_document(metadata: dict) -> dict:
     return metadata
 
 
+def set_document_sha256(document_id: str, sha256: str) -> bool:
+    """
+    Store a content hash on an existing record that does not have one yet.
+
+    Used to migrate documents uploaded before duplicate detection existed.
+    A hash that is already stored is never overwritten.
+    """
+
+    with _store_lock:
+        documents = _read_documents()
+        record = documents.get(document_id)
+
+        if record is None or record.get("sha256"):
+            return False
+
+        record["sha256"] = sha256
+        _write_documents(documents)
+
+    return True
+
+
 def get_document(document_id: str):
     """Retrieve a document using its ID."""
 

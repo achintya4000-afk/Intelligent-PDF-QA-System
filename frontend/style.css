@@ -24,8 +24,6 @@
                  > button.quiz-option (.selected .correct .incorrect)
                  > .quiz-option-letter + .quiz-option-text
                  + .quiz-feedback (.correct .incorrect) + .quiz-explanation
-   Compare     : .compare-result > .compare-section.similarities |
-                 .compare-section.differences > .compare-section-title + ul
    Upload      : #dropZone.drag-over | .success | .error
                  #fileStatus.success | .error · #uploadProgress.success | .error
    Status      : #backendStatus.connected | .error | .checking
@@ -987,7 +985,6 @@ html[data-route="documents"] .nav-link[data-page="documents"],
 html[data-route="assistant"] .nav-link[data-page="assistant"],
 html[data-route="summarizer"] .nav-link[data-page="summarizer"],
 html[data-route="quiz"] .nav-link[data-page="quiz"],
-html[data-route="compare"] .nav-link[data-page="compare"],
 html[data-route="settings"] .nav-link[data-page="settings"],
 .nav-link.active,
 .nav-link[aria-current="page"] {
@@ -1018,7 +1015,6 @@ html[data-route="documents"] .nav-link[data-page="documents"] .nav-badge,
 html[data-route="assistant"] .nav-link[data-page="assistant"] .nav-badge,
 html[data-route="summarizer"] .nav-link[data-page="summarizer"] .nav-badge,
 html[data-route="quiz"] .nav-link[data-page="quiz"] .nav-badge,
-html[data-route="compare"] .nav-link[data-page="compare"] .nav-badge,
 html[data-route="settings"] .nav-link[data-page="settings"] .nav-badge,
 .nav-link.active .nav-badge,
 .nav-link[aria-current="page"] .nav-badge {
@@ -1198,7 +1194,6 @@ html[data-route="documents"] .topbar-title [data-route-title="documents"],
 html[data-route="assistant"] .topbar-title [data-route-title="assistant"],
 html[data-route="summarizer"] .topbar-title [data-route-title="summarizer"],
 html[data-route="quiz"] .topbar-title [data-route-title="quiz"],
-html[data-route="compare"] .topbar-title [data-route-title="compare"],
 html[data-route="settings"] .topbar-title [data-route-title="settings"],
 html:not([data-route]) .topbar-title [data-route-subtitle="dashboard"],
 html[data-route="dashboard"] .topbar-title [data-route-subtitle="dashboard"],
@@ -1206,7 +1201,6 @@ html[data-route="documents"] .topbar-title [data-route-subtitle="documents"],
 html[data-route="assistant"] .topbar-title [data-route-subtitle="assistant"],
 html[data-route="summarizer"] .topbar-title [data-route-subtitle="summarizer"],
 html[data-route="quiz"] .topbar-title [data-route-subtitle="quiz"],
-html[data-route="compare"] .topbar-title [data-route-subtitle="compare"],
 html[data-route="settings"] .topbar-title [data-route-subtitle="settings"] {
     display: inline;
 }
@@ -1267,7 +1261,7 @@ html[data-route="settings"] .topbar-title [data-route-subtitle="settings"] {
    The expanding ring is the dot's ::after. It copies the dot's own colour with
    background: inherit, so it always matches the existing status colours and themes.
    Only transform and opacity are animated. Wrapped in no-preference so people who
-   ask for reduced motion get the plain static dot. Keyframes: see section 13. */
+   ask for reduced motion get the plain static dot. Keyframes: see section 12. */
 @media (prefers-reduced-motion: no-preference) {
     .status-dot::after {
         content: "";
@@ -1328,7 +1322,6 @@ html[data-route="documents"] #page-documents,
 html[data-route="assistant"] #page-assistant,
 html[data-route="summarizer"] #page-summarizer,
 html[data-route="quiz"] #page-quiz,
-html[data-route="compare"] #page-compare,
 html[data-route="settings"] #page-settings {
     display: block;
 }
@@ -1355,6 +1348,16 @@ html[data-route="settings"] #page-settings {
 
 .page-header .btn {
     flex-shrink: 0;
+}
+
+/* Groups several header buttons (e.g. Upload PDF + New Chat) on one row. */
+.page-header-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    flex-shrink: 0;
+    gap: var(--space-3);
 }
 
 .section-heading {
@@ -1749,10 +1752,14 @@ html[data-route="settings"] #page-settings {
     color: var(--danger);
 }
 
+.file-status.warning {
+    color: var(--warning);
+}
+
 /* ---------- Feature cards ---------- */
 .feature-grid {
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: var(--space-4);
 }
 
@@ -1843,6 +1850,8 @@ html[data-route="settings"] #page-settings {
     display: flex;
     align-items: center;
     gap: 14px;
+    min-width: 0;
+    max-width: 100%;
     padding: 12px 0;
     border-bottom: 1px solid var(--border);
     font-size: 13px;
@@ -1871,6 +1880,9 @@ html[data-route="settings"] #page-settings {
 }
 
 .document-name {
+    display: block;
+    min-width: 0;
+    max-width: 100%;
     overflow: hidden;
     font-size: 14px;
     font-weight: 500;
@@ -1935,7 +1947,7 @@ html[data-route="settings"] #page-settings {
 
 .document-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(min(260px, 100%), 1fr));
     gap: var(--space-4);
     padding: 0;
     background: transparent;
@@ -1976,6 +1988,16 @@ html[data-route="settings"] #page-settings {
 
 .document-grid .document-info {
     width: 100%;
+}
+
+/* Grid view: let long filenames wrap onto two lines before the ellipsis. */
+.document-grid .document-name {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    white-space: normal;
+    overflow-wrap: anywhere;
 }
 
 .document-grid .document-actions {
@@ -2400,7 +2422,7 @@ html[data-route="settings"] #page-settings {
     min-height: 280px;
 }
 
-/* Rendered text (summaries, comparisons) */
+/* Rendered text (summaries) */
 .output-body :where(h1, h2, h3, h4) {
     margin: 1.3em 0 .5em;
     line-height: 1.3;
@@ -2619,95 +2641,7 @@ html[data-route="settings"] #page-settings {
 
 
 /* ==========================================================================
-   10. COMPARE PDFS
-   ========================================================================== */
-
-.compare-form {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-4);
-    padding: var(--space-5);
-}
-
-.compare-form .btn {
-    align-self: flex-start;
-}
-
-.compare-selects {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
-    gap: var(--space-3);
-    align-items: end;
-}
-
-.compare-divider {
-    display: grid;
-    place-items: center;
-    width: 36px;
-    height: 36px;
-    margin-bottom: 2px;
-    border: 1px solid var(--border);
-    border-radius: 50%;
-    background: var(--surface-2);
-    color: var(--text-muted);
-}
-
-.compare-divider .lucide,
-.compare-divider i[data-lucide] {
-    width: 16px;
-    height: 16px;
-}
-
-.compare-form + .tool-output {
-    margin-top: var(--space-5);
-    min-height: 280px;
-}
-
-.compare-result {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: var(--space-4);
-}
-
-.compare-section {
-    padding: var(--space-4);
-    background: var(--surface-2);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-lg);
-}
-
-.compare-section.similarities {
-    background: var(--success-soft);
-    border-color: var(--success-border);
-}
-
-.compare-section.differences {
-    background: var(--warning-soft);
-    border-color: var(--warning-border);
-}
-
-.compare-section-title {
-    margin-bottom: 10px;
-    font-size: 14px;
-    font-weight: 600;
-}
-
-.compare-section.similarities .compare-section-title {
-    color: var(--success);
-}
-
-.compare-section.differences .compare-section-title {
-    color: var(--warning);
-}
-
-.compare-section ul {
-    margin: 0;
-    padding-left: 1.2em;
-}
-
-
-/* ==========================================================================
-   11. SETTINGS
+   10. SETTINGS
    ========================================================================== */
 
 .settings-form {
@@ -2740,7 +2674,7 @@ html[data-route="settings"] #page-settings {
 
 
 /* ==========================================================================
-   12. SHARED COMPONENTS
+   11. SHARED COMPONENTS
    ========================================================================== */
 
 /* ---------- Empty states ---------- */
@@ -3052,7 +2986,7 @@ dialog.modal::backdrop {
 
 
 /* ==========================================================================
-   13. ANIMATIONS
+   12. ANIMATIONS
    ========================================================================== */
 
 @keyframes spin {
@@ -3089,13 +3023,13 @@ dialog.modal::backdrop {
     50%      { opacity: .45; }
 }
 
-/* Dashboard sections: gentle fade + rise (see section 16) */
+/* Dashboard sections: gentle fade + rise (see section 15) */
 @keyframes page-section-in {
     from { opacity: 0; transform: translateY(12px); }
     to   { opacity: 1; transform: none; }
 }
 
-/* Welcome banner glow drift (see section 16) */
+/* Welcome banner glow drift (see section 15) */
 @keyframes welcome-glow {
     from { transform: translate3d(0, 0, 0) scale(1);        opacity: .75; }
     to   { transform: translate3d(-48px, 36px, 0) scale(1.18); opacity: 1; }
@@ -3103,7 +3037,7 @@ dialog.modal::backdrop {
 
 
 /* ==========================================================================
-   14. RESPONSIVE
+   13. RESPONSIVE
    ========================================================================== */
 
 /* ---------- Desktop: overlay never shown, collapsible sidebar ---------- */
@@ -3282,16 +3216,6 @@ dialog.modal::backdrop {
         margin-top: var(--space-6);
     }
 
-    .compare-selects {
-        grid-template-columns: minmax(0, 1fr);
-    }
-
-    .compare-divider {
-        margin: 0 auto;
-        transform: rotate(90deg);
-    }
-
-    .compare-result,
     .form-row {
         grid-template-columns: minmax(0, 1fr);
     }
@@ -3311,7 +3235,6 @@ dialog.modal::backdrop {
     .output-header,
     .output-body,
     .tool-form,
-    .compare-form,
     .settings-group {
         padding-inline: var(--space-4);
     }
@@ -3366,7 +3289,7 @@ dialog.modal::backdrop {
 
 
 /* ==========================================================================
-   15. ACCESSIBILITY & RESPONSIVE POLISH
+   14. ACCESSIBILITY & RESPONSIVE POLISH
    These overrides preserve the existing HTML/JS class contract.
    ========================================================================== */
 
@@ -3453,8 +3376,7 @@ dialog.modal::backdrop {
 /* Allow long document names and generated source passages to wrap safely. */
 .source-text,
 .document-meta,
-.output-message,
-.compare-section li {
+.output-message {
     overflow-wrap: anywhere;
 }
 
@@ -3704,10 +3626,10 @@ dialog.modal::backdrop {
 
 
 /* ==========================================================================
-   16. PHASE 1 VISUAL POLISH
+   15. PHASE 1 VISUAL POLISH
    Everything that moves is gated on prefers-reduced-motion: no-preference, so
    reduced-motion users keep the original static look. Tokens: --t-lift and
-   --t-press (section 1), --welcome-glow. Keyframes: section 13.
+   --t-press (section 1), --welcome-glow. Keyframes: section 12.
    ========================================================================== */
 
 @media (prefers-reduced-motion: no-preference) {
@@ -3724,7 +3646,6 @@ dialog.modal::backdrop {
     html[data-route="assistant"] #page-assistant,
     html[data-route="summarizer"] #page-summarizer,
     html[data-route="quiz"] #page-quiz,
-    html[data-route="compare"] #page-compare,
     html[data-route="settings"] #page-settings {
         animation: page-section-in .5s ease-out both;
     }
@@ -3775,7 +3696,7 @@ dialog.modal::backdrop {
 
 
 /* ==========================================================================
-   17. GLASS FALLBACKS & USER PREFERENCES
+   16. GLASS FALLBACKS & USER PREFERENCES
    Glass is progressive enhancement: where backdrop blur is unavailable, or the
    person asks for more contrast or less transparency, every glass layer falls
    back to the solid surface tokens. Layout and colour contract are unchanged.
@@ -3815,7 +3736,7 @@ dialog.modal::backdrop {
 }
 
 /* ==========================================================================
-   18. SMALL-SCREEN GLASS PERFORMANCE REFINEMENT
+   17. SMALL-SCREEN GLASS PERFORMANCE REFINEMENT
    Keep the frosted appearance while reducing blur cost on narrow devices.
    ========================================================================== */
 
@@ -4084,4 +4005,83 @@ dialog.modal::backdrop {
     background: var(--success-soft);
     border-color: var(--success-border);
     color: var(--success);
+}
+
+
+/* ==========================================================================
+   Web sources (Google Search Grounding)
+   ========================================================================== */
+
+.answer-badge--web {
+    background: var(--info-soft);
+    border-color: var(--info-border);
+    color: var(--info);
+}
+
+.citation--web {
+    border-color: var(--info-border);
+    background: var(--info-soft);
+    color: var(--info);
+}
+
+.citation--web:hover {
+    background: var(--info-border);
+}
+
+.sources-section-title {
+    margin: 4px 0 0;
+    color: var(--text-muted);
+    font-size: 11.5px;
+    font-weight: 700;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+}
+
+.source-queries {
+    margin: 0;
+    color: var(--text-subtle);
+    font-size: 11.5px;
+    line-height: 1.4;
+    overflow-wrap: anywhere;
+}
+
+.source-card--web:hover,
+.source-card--web.active {
+    border-color: var(--info-border);
+}
+
+.source-page--web {
+    background: var(--info-soft);
+    color: var(--info);
+}
+
+.source-link {
+    display: inline-block;
+    max-width: 100%;
+    margin-bottom: 6px;
+    overflow: hidden;
+    color: var(--info);
+    font-size: 12px;
+    font-weight: 600;
+    text-decoration: none;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.source-link:hover {
+    text-decoration: underline;
+}
+
+.source-link:focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
+}
+
+/* Phones: source cards scroll sideways, so section headings are hidden.
+   Web cards still carry their blue "W1" tag and a link. */
+@media (max-width: 768px) {
+    .sources-section-title,
+    .source-queries {
+        display: none;
+    }
 }
