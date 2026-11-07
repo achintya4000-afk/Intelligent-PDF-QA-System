@@ -373,9 +373,14 @@
                         <h1 id="assistantHeading">AI Assistant</h1>
                         <p>Ask questions about your documents, or get general AI answers.</p>
                     </div>
-                    <button class="btn btn-secondary" id="assistantNewChatBtn" type="button">
-                        <i data-lucide="plus"></i><span>New Chat</span>
-                    </button>
+                    <div class="page-header-actions">
+                        <button class="btn btn-primary" id="assistantUploadBtn" type="button" data-action="browse">
+                            <i data-lucide="upload"></i><span>Upload PDF</span>
+                        </button>
+                        <button class="btn btn-secondary" id="assistantNewChatBtn" type="button">
+                            <i data-lucide="plus"></i><span>New Chat</span>
+                        </button>
+                    </div>
                 </div>
 
                 <div class="chat-layout" id="chatLayout">
@@ -447,6 +452,9 @@
                         <h1 id="summarizerHeading">Smart Summarizer</h1>
                         <p>Turn long PDFs into concise, structured notes.</p>
                     </div>
+                    <button class="btn btn-primary" id="summarizerUploadBtn" type="button" data-action="browse">
+                        <i data-lucide="upload"></i><span>Upload PDF</span>
+                    </button>
                 </div>
 
                 <div class="tool-layout" id="summarizerLayout">
@@ -513,6 +521,9 @@
                         <h1 id="quizHeading">Quiz Generator</h1>
                         <p>Create multiple-choice questions to test your understanding.</p>
                     </div>
+                    <button class="btn btn-primary" id="quizUploadBtn" type="button" data-action="browse">
+                        <i data-lucide="upload"></i><span>Upload PDF</span>
+                    </button>
                 </div>
 
                 <div class="tool-layout" id="quizLayout">

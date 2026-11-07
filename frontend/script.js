@@ -671,6 +671,12 @@
         setFileStatus('Connecting to the DocuMind backend…');
         setUploadProgress(0, file.name);
 
+        // The progress bar lives on the Dashboard, so tell the user the upload
+        // has started when it was triggered from any other page.
+        if (document.documentElement.dataset.route !== 'dashboard') {
+            toast(`Uploading ${file.name}…`, 'info');
+        }
+
         // XMLHttpRequest provides upload progress.
         // The backend must accept multipart/form-data
         // using the field name "file".
@@ -746,7 +752,11 @@
                     refreshed = state.documents.find(item => item.id === doc.id) || refreshed;
                 }
                 setFileStatus(isDocumentReady(refreshed) ? `${refreshed.name} is ready to use.` : `${refreshed.name} was uploaded and is still processing.`, isDocumentReady(refreshed) ? 'success' : '');
-                navigate('documents');
+                // Dashboard uploads keep their original redirect; uploads started
+                // from other pages (My Documents, Assistant, Summarizer, Quiz) stay put.
+                if (document.documentElement.dataset.route === 'dashboard') {
+                    navigate('documents');
+                }
             }
 
             window.setTimeout(resetUploadProgress, 1400);
