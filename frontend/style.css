@@ -4310,9 +4310,29 @@ dialog.modal::backdrop {
 }
 
 .pdf-viewer-body {
+    position: relative;
     flex: 1;
     min-height: 0;
     background: var(--surface-2);
+}
+
+/* Shown over the PDF when a glossary term is not on the opened page. */
+.pdf-viewer-notice {
+    position: absolute;
+    bottom: var(--space-4);
+    left: 50%;
+    max-width: calc(100% - 2 * var(--space-4));
+    padding: 8px 14px;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text);
+    text-align: center;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-lg);
+    transform: translateX(-50%);
+    pointer-events: none;
 }
 
 .pdf-viewer-frame {

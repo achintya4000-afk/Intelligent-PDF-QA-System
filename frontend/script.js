@@ -2387,7 +2387,49 @@
         return pageNumber > 0 ? `${base}#page=${pageNumber}` : base;
     }
 
-    function openPdfViewer(documentId, page) {
+    // Same file, with every occurrence of "term" on one page highlighted.
+    // The backend adds the highlights at the term's real text positions.
+    function pdfHighlightURL(documentId, pageNumber, term) {
+        const base = apiURL(
+            `${API_ROUTES.documents}/${encodeURIComponent(documentId)}/file/highlighted`
+        );
+
+        return `${base}?page=${pageNumber}&term=${encodeURIComponent(term)}#page=${pageNumber}`;
+    }
+
+    // Used to ignore a late "not found" answer after the viewer was reused.
+    let pdfHighlightRequest = 0;
+
+    function showPdfTermNotice(message) {
+        const notice = document.createElement('div');
+
+        notice.className = 'pdf-viewer-notice';
+        notice.setAttribute('role', 'status');
+        notice.textContent = message;
+
+        byId('pdfViewerBody').appendChild(notice);
+    }
+
+    async function checkPdfHighlight(documentId, pageNumber, term, requestId) {
+        try {
+            const query = `page=${pageNumber}&term=${encodeURIComponent(term)}`;
+            const response = await fetch(apiURL(
+                `${API_ROUTES.documents}/${encodeURIComponent(documentId)}/highlight-info?${query}`
+            ));
+
+            if (!response.ok) return;
+
+            const data = await response.json();
+
+            if (requestId === pdfHighlightRequest && data.matches === 0) {
+                showPdfTermNotice('Term not found on this page');
+            }
+        } catch (error) {
+            // The PDF itself still opens; only the notice is skipped.
+        }
+    }
+
+    function openPdfViewer(documentId, page, term) {
         const doc = state.documents.find(item => item.id === documentId);
 
         if (!doc) {
@@ -2396,10 +2438,16 @@
         }
 
         const pageNumber = Number.parseInt(page, 10) || 0;
-        const url = pdfFileURL(documentId, pageNumber);
+        const highlightTerm = typeof term === 'string' ? term.trim() : '';
+        const highlight = pageNumber > 0 && highlightTerm.length > 0;
+        const url = highlight
+            ? pdfHighlightURL(documentId, pageNumber, highlightTerm)
+            : pdfFileURL(documentId, pageNumber);
+
+        pdfHighlightRequest += 1;
 
         byId('pdfViewerTitle').textContent = pageNumber > 0
-            ? `${doc.name} · Page ${pageNumber}`
+            ? `${doc.name} · Page ${pageNumber}${highlight ? ` · “${highlightTerm}”` : ''}`
             : doc.name;
 
         byId('pdfViewerNewTab').href = url;
@@ -2412,6 +2460,10 @@
         frame.src = url;
 
         byId('pdfViewerBody').replaceChildren(frame);
+
+        if (highlight) {
+            checkPdfHighlight(documentId, pageNumber, highlightTerm, pdfHighlightRequest);
+        }
 
         if (byId('pdfViewer').hidden) {
             pdfViewerOpener = document.activeElement;
@@ -2428,6 +2480,7 @@
         if (viewer.hidden) return;
 
         viewer.hidden = true;
+        pdfHighlightRequest += 1;
         byId('pdfViewerBody').replaceChildren();
 
         if (pdfViewerOpener && typeof pdfViewerOpener.focus === 'function') {
@@ -2630,6 +2683,7 @@
                         data-action="open-pdf"
                         data-id="${documentId}"
                         data-pdf-page="${escapeHTML(page)}"
+                        data-term="${escapeHTML(entry.term)}"
                         title="Open page ${escapeHTML(page)} in the PDF"
                     >${escapeHTML(page)}</button>
                 `).join('')}
@@ -3323,7 +3377,8 @@
                     break;
 
                 case 'open-pdf':
-                    openPdfViewer(id, action.dataset.pdfPage);
+                    // data-term is set only on glossary page links.
+                    openPdfViewer(id, action.dataset.pdfPage, action.dataset.term);
                     break;
 
                 case 'select-chat':

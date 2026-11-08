@@ -2,7 +2,7 @@ import logging
 from typing import Literal
 from uuid import UUID
 
-from fastapi import APIRouter, UploadFile, File, Form, HTTPException
+from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Query
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel, Field
@@ -25,6 +25,7 @@ from backend.services.reindex_service import (
 )
 
 from backend.storage.document_store import get_all_documents, get_document
+from backend.pdf_processing.highlighter import highlight_term, MAX_TERM_LENGTH
 
 
 router = APIRouter()
@@ -229,6 +230,86 @@ def get_document_file(document_id: str):
         media_type="application/pdf",
         headers={"Content-Disposition": 'inline; filename="document.pdf"'},
     )
+
+
+# Resolves a stored PDF for the glossary highlight routes below
+def _stored_pdf_path(document_id: str):
+    try:
+        UUID(document_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid document ID.")
+
+    if get_document(document_id) is None:
+        raise HTTPException(status_code=404, detail="Document not found.")
+
+    pdf_path = (UPLOAD_DIR / f"{document_id}.pdf").resolve()
+
+    try:
+        pdf_path.relative_to(UPLOAD_DIR.resolve())
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid document storage location.")
+
+    if not pdf_path.is_file():
+        raise HTTPException(
+            status_code=404,
+            detail="The original PDF file is missing. Please upload it again.",
+        )
+
+    return pdf_path
+
+
+# The PDF with every occurrence of a term on one page highlighted in yellow.
+# The highlights are added to a copy in memory; the stored file is unchanged.
+# If the term is not on the page, the original PDF is returned as it is.
+@router.get("/api/documents/{document_id}/file/highlighted")
+async def get_document_file_highlighted(
+    document_id: str,
+    page: int = Query(..., ge=1),
+    term: str = Query(..., min_length=1, max_length=MAX_TERM_LENGTH),
+):
+    pdf_path = _stored_pdf_path(document_id)
+
+    try:
+        data, matches = await run_in_threadpool(
+            highlight_term, pdf_path, page, term
+        )
+    except Exception:
+        logger.exception("Could not highlight a term in the PDF.")
+        data, matches = None, 0
+
+    headers = {
+        "Content-Disposition": 'inline; filename="document.pdf"',
+        "X-Highlight-Matches": str(matches),
+    }
+
+    if data is None:
+        return FileResponse(
+            pdf_path, media_type="application/pdf", headers=headers
+        )
+
+    return Response(content=data, media_type="application/pdf", headers=headers)
+
+
+# How many places the term was found on the page (0 = "Term not found")
+@router.get("/api/documents/{document_id}/highlight-info")
+async def get_document_highlight_info(
+    document_id: str,
+    page: int = Query(..., ge=1),
+    term: str = Query(..., min_length=1, max_length=MAX_TERM_LENGTH),
+):
+    pdf_path = _stored_pdf_path(document_id)
+
+    try:
+        _, matches = await run_in_threadpool(
+            highlight_term, pdf_path, page, term
+        )
+    except Exception:
+        logger.exception("Could not search the PDF page for a term.")
+        raise HTTPException(
+            status_code=500, detail="Unable to search this page."
+        )
+
+    return {"matches": matches}
 
 
 # Delete a document
