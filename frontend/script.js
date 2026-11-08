@@ -2,11 +2,11 @@
    DocuMind – script.js
    Frontend controller for the supplied index.html + style.css.
 
-   IMPORTANT BACKEND CONTRACT
-   --------------------------
-   The API paths below are proposed integration paths, not a claim that
-   the FastAPI backend already implements them. Adjust API_ROUTES when
-   backend/main.py and its routes are ready.
+   BACKEND INTEGRATION
+   -------------------
+   These API paths match the FastAPI routes registered by backend/main.py.
+   PDF upload is processed by the backend's existing hybrid extraction
+   pipeline before the upload endpoint returns the indexed document.
 
    Expected response shapes:
    GET  /health                 -> { "status": "ok" }
@@ -690,7 +690,10 @@
         );
 
         xhr.responseType = 'text';
-        xhr.timeout = 120000;
+        // The backend performs extraction, OCR where needed, chunking and
+        // indexing before returning the upload response. Allow enough time
+        // for larger PDFs and slower OCR/API requests.
+        xhr.timeout = 600000;
 
         xhr.upload.addEventListener('progress', event => {
             if (event.lengthComputable) {
@@ -699,6 +702,15 @@
                     file.name
                 );
             }
+        });
+
+        // Upload progress only measures bytes sent by the browser. Once the
+        // file reaches FastAPI, the backend still has to extract text, run
+        // OCR on applicable content, create chunks and build the FAISS index.
+        xhr.upload.addEventListener('load', () => {
+            setFileStatus(
+                'PDF received. Extracting text, running OCR where needed, and building the search index…'
+            );
         });
 
         xhr.addEventListener('load', async () => {
@@ -762,8 +774,8 @@
                 );
             } else {
                 setUploadProgress(100, file.name);
-                setFileStatus(`${doc.name} uploaded. Waiting for indexing to finish…`);
-                toast('PDF uploaded. Checking indexing status…', 'info');
+                setFileStatus(`${doc.name} processed and indexed. Checking document status…`);
+                toast('PDF processing and indexing completed.', 'success');
 
                 await loadDocuments(false);
                 let refreshed = state.documents.find(item => item.id === doc.id) || doc;
