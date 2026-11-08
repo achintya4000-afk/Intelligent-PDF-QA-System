@@ -457,7 +457,32 @@ def _ocr_region(page, region, rescue_if_empty: bool) -> list:
 
     image, offset_x, offset_y = ocr_engine.crop_dark_borders(image)
 
-    lines = ocr_engine.recognize_image(image, rescue_if_empty=rescue_if_empty)
+    # PaddleOCR remains the primary local OCR engine for printed text.
+    paddle_lines = ocr_engine.recognize_image(
+        image,
+        rescue_if_empty=rescue_if_empty
+    )
+
+    # Gemini is an optional handwriting recogniser. It returns the locations
+    # and transcription of handwritten regions only. If the API is unavailable
+    # or returns unusable coordinates, PaddleOCR output is retained unchanged.
+    try:
+        from backend.pdf_processing.handwriting_engine import (
+            recognize_handwriting_regions,
+            remove_printed_lines_overlapping_handwriting
+        )
+
+        handwriting_lines = recognize_handwriting_regions(image)
+        lines = remove_printed_lines_overlapping_handwriting(
+            paddle_lines,
+            handwriting_lines
+        )
+        lines.extend(handwriting_lines)
+    except Exception:
+        logger.exception(
+            "Hybrid handwriting OCR failed; falling back to PaddleOCR only."
+        )
+        lines = paddle_lines
 
     del image
 
