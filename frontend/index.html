@@ -29,7 +29,7 @@
         // The stylesheet reads html[data-route] to decide which page, sidebar
         // item and title are shown, so the very first paint is already correct.
         // Keep this list in sync with PAGE_META in script.js.
-        var routes = ['dashboard', 'documents', 'assistant', 'summarizer', 'quiz', 'settings'];
+        var routes = ['dashboard', 'documents', 'assistant', 'summarizer', 'quiz', 'glossary', 'settings'];
         var requested = window.location.hash.slice(1);
         document.documentElement.setAttribute(
             'data-route',
@@ -98,6 +98,11 @@
                         <i data-lucide="list-checks"></i><span>Quiz Generator</span>
                     </a>
                 </li>
+                <li>
+                    <a href="#glossary" class="nav-link" id="navGlossary" data-page="glossary">
+                        <i data-lucide="book-open"></i><span>Glossary</span>
+                    </a>
+                </li>
             </ul>
 
             <div class="chat-history-heading">
@@ -156,8 +161,8 @@
                 <div class="topbar-title">
                     <!-- One span per route so the correct text is visible on first paint (see style.css).
                          script.js replaces these with plain text on navigation. Keep in sync with PAGE_META. -->
-                    <h2 id="pageTitle"><span data-route-title="dashboard">Dashboard</span><span data-route-title="documents">My Documents</span><span data-route-title="assistant">AI Assistant</span><span data-route-title="summarizer">Smart Summarizer</span><span data-route-title="quiz">Quiz Generator</span><span data-route-title="settings">Settings</span></h2>
-                    <p id="pageSubtitle"><span data-route-subtitle="dashboard">Your intelligent document workspace</span><span data-route-subtitle="documents">Manage your indexed PDF library</span><span data-route-subtitle="assistant">Ask your documents or get general AI answers</span><span data-route-subtitle="summarizer">Turn long PDFs into concise notes</span><span data-route-subtitle="quiz">Test your understanding with document-based questions</span><span data-route-subtitle="settings">Customize your DocuMind workspace</span></p>
+                    <h2 id="pageTitle"><span data-route-title="dashboard">Dashboard</span><span data-route-title="documents">My Documents</span><span data-route-title="assistant">AI Assistant</span><span data-route-title="summarizer">Smart Summarizer</span><span data-route-title="quiz">Quiz Generator</span><span data-route-title="glossary">Glossary Generator</span><span data-route-title="settings">Settings</span></h2>
+                    <p id="pageSubtitle"><span data-route-subtitle="dashboard">Your intelligent document workspace</span><span data-route-subtitle="documents">Manage your indexed PDF library</span><span data-route-subtitle="assistant">Ask your documents or get general AI answers</span><span data-route-subtitle="summarizer">Turn long PDFs into concise notes</span><span data-route-subtitle="quiz">Test your understanding with document-based questions</span><span data-route-subtitle="glossary">Key terms and definitions from your PDFs</span><span data-route-subtitle="settings">Customize your DocuMind workspace</span></p>
                 </div>
             </div>
 
@@ -300,6 +305,13 @@
                             <span class="feature-icon orange" aria-hidden="true"><i data-lucide="list-checks"></i></span>
                             <h4>Quiz Generator</h4>
                             <p>Create MCQs from your PDFs.</p>
+                            <span class="feature-link">Explore <i data-lucide="arrow-right"></i></span>
+                        </button>
+
+                        <button class="feature-card" id="featureGlossary" type="button" data-feature="glossary">
+                            <span class="feature-icon purple" aria-hidden="true"><i data-lucide="book-open"></i></span>
+                            <h4>Glossary Generator</h4>
+                            <p>Automatically extract important terms and generate their meanings from your PDFs.</p>
                             <span class="feature-link">Explore <i data-lucide="arrow-right"></i></span>
                         </button>
                     </div>
@@ -580,6 +592,77 @@
                                 <div class="empty-icon" aria-hidden="true"><i data-lucide="list-checks"></i></div>
                                 <h4>No quiz yet</h4>
                                 <p>Generate a quiz from one of your documents to start practising.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ===================== GLOSSARY GENERATOR ===================== -->
+            <section class="page" id="page-glossary" data-page-id="glossary" aria-labelledby="glossaryHeading">
+                <div class="page-header">
+                    <div>
+                        <h1 id="glossaryHeading">Glossary Generator</h1>
+                        <p>Automatically find the important terms in a PDF and get clear definitions with source pages. Definitions that the document does not explain are labelled as AI-supplemented.</p>
+                    </div>
+                    <button class="btn btn-primary" id="glossaryUploadBtn" type="button" data-action="browse">
+                        <i data-lucide="upload"></i><span>Upload PDF</span>
+                    </button>
+                </div>
+
+                <div class="tool-layout" id="glossaryLayout">
+                    <form class="tool-form card" id="glossaryForm" novalidate>
+                        <div class="form-group">
+                            <label for="glossaryDocumentSelect">Document</label>
+                            <div class="select-wrap">
+                                <select id="glossaryDocumentSelect" name="document" required>
+                                    <option value="">Select a document…</option>
+                                </select>
+                            </div>
+                            <small>Terms are found automatically. You do not need to enter any.</small>
+                        </div>
+
+                        <button class="btn btn-primary" id="generateGlossaryBtn" type="submit">
+                            <i data-lucide="wand-sparkles"></i><span>Generate Glossary</span>
+                        </button>
+                    </form>
+
+                    <div class="tool-output card">
+                        <div class="output-header">
+                            <h3>Glossary</h3>
+                            <div class="output-actions">
+                                <span class="badge badge-info" id="glossaryCount" hidden></span>
+                                <button class="btn btn-secondary btn-sm" id="exportGlossaryBtn" type="button" disabled>
+                                    <i data-lucide="download"></i><span>Export PDF</span>
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="glossary-controls" id="glossaryControls" hidden>
+                            <div class="search-box">
+                                <i data-lucide="search" aria-hidden="true"></i>
+                                <label for="glossarySearch" class="sr-only">Search glossary terms</label>
+                                <input type="search" id="glossarySearch" placeholder="Search terms…" autocomplete="off">
+                            </div>
+                            <div class="select-wrap glossary-sort">
+                                <label for="glossarySort" class="sr-only">Sort terms</label>
+                                <select id="glossarySort">
+                                    <option value="asc">A → Z</option>
+                                    <option value="desc">Z → A</option>
+                                </select>
+                            </div>
+                            <div class="view-toggle glossary-view" role="group" aria-label="Definition style">
+                                <button class="btn btn-sm active" id="glossaryViewSimple" type="button" data-glossary-view="simple" aria-pressed="true">Simple</button>
+                                <button class="btn btn-sm" id="glossaryViewTechnical" type="button" data-glossary-view="technical" aria-pressed="false">Technical</button>
+                            </div>
+                            <nav class="glossary-letters" id="glossaryLetters" aria-label="Filter terms by first letter"></nav>
+                        </div>
+
+                        <div id="glossaryOutput" class="output-body">
+                            <div class="empty-state" id="glossaryEmptyState">
+                                <div class="empty-icon" aria-hidden="true"><i data-lucide="book-open"></i></div>
+                                <h4>No glossary yet</h4>
+                                <p>Choose an uploaded document and select Generate Glossary. DocuMind finds the key terms and defines them using the document's own text.</p>
                             </div>
                         </div>
                     </div>

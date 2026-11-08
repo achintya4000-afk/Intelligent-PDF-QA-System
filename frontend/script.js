@@ -17,6 +17,11 @@
                                              mode, answer_type: "pdf"|"general_ai", fallback_reason}
    POST /api/summarize          -> {summary}
    POST /api/quiz/generate      -> {questions:[{question, options, answer_index, explanation}]}
+   POST /api/glossary/generate  -> request {document_id}
+                                   response {document_id, filename, term_count, partial,
+                                             terms:[{term, simple_definition, technical_definition,
+                                                     source_type: "document"|"ai_supplemented", pages:[n]}]}
+   POST /api/glossary/export    -> request {document_id, view: "simple"|"technical"|"both", terms}; returns a PDF file
    DELETE /api/documents/{id}   -> success response
 
    PDFs and API keys are not stored in localStorage. Chat text and settings
@@ -57,7 +62,9 @@
         upload: '/api/documents/upload',
         chat: '/api/chat',
         summarize: '/api/summarize',
-        quiz: '/api/quiz/generate'
+        quiz: '/api/quiz/generate',
+        glossary: '/api/glossary/generate',
+        glossaryExport: '/api/glossary/export'
     };
 
     const PAGE_META = {
@@ -66,6 +73,7 @@
         assistant: ['AI Assistant', 'Ask your documents or get general AI answers'],
         summarizer: ['Smart Summarizer', 'Turn long PDFs into concise notes'],
         quiz: ['Quiz Generator', 'Test your understanding with document-based questions'],
+        glossary: ['Glossary Generator', 'Key terms and definitions from your PDFs'],
         settings: ['Settings', 'Customize your DocuMind workspace']
     };
 
@@ -501,7 +509,8 @@
         const pages = {
             chat: 'assistant',
             summary: 'summarizer',
-            quiz: 'quiz'
+            quiz: 'quiz',
+            glossary: 'glossary'
         };
 
         navigate(pages[feature] || 'assistant');
@@ -1008,7 +1017,8 @@
         const ids = [
             'chatDocumentSelect',
             'summaryDocumentSelect',
-            'quizDocumentSelect'
+            'quizDocumentSelect',
+            'glossaryDocumentSelect'
         ];
 
         ids.forEach(id => {
@@ -1032,6 +1042,8 @@
                 select.value = previous;
             }
         });
+
+        syncGlossaryWithDocuments();
     }
 
     async function loadDocuments(showMessage = true) {
@@ -2330,6 +2342,524 @@
         }
     }
 
+    /* ---------------------------- Glossary flow --------------------------- */
+
+    // Generated glossaries are kept in memory per document, so switching
+    // documents or pages does not cost another AI request.
+    const glossaryState = {
+        cache: {},
+        documentId: '',
+        view: 'simple',
+        query: '',
+        letter: 'all',
+        sort: 'asc',
+        busy: false
+    };
+
+    function currentGlossary() {
+        return glossaryState.cache[glossaryState.documentId] || null;
+    }
+
+    function glossaryLetterOf(term) {
+        const first = String(term || '')
+            .normalize('NFD')
+            .replace(/[̀-ͯ]/g, '')
+            .charAt(0)
+            .toUpperCase();
+
+        return /[A-Z]/.test(first) ? first : '#';
+    }
+
+    function normaliseGlossaryTerms(list) {
+        if (!Array.isArray(list)) return [];
+
+        return list
+            .map(item => ({
+                term: safeText(item?.term),
+                simple: safeText(item?.simple_definition),
+                technical: safeText(item?.technical_definition),
+                sourceType: item?.source_type === 'document'
+                    ? 'document'
+                    : 'ai_supplemented',
+                pages: Array.isArray(item?.pages)
+                    ? item.pages.filter(page => Number.isInteger(page) && page > 0)
+                    : []
+            }))
+            .filter(entry => entry.term && entry.simple);
+    }
+
+    function showGlossaryState(icon, title, message, extraHTML = '') {
+        byId('glossaryControls').hidden = true;
+        byId('glossaryCount').hidden = true;
+        byId('exportGlossaryBtn').disabled = true;
+
+        byId('glossaryOutput').innerHTML = `
+            <div class="empty-state" id="glossaryEmptyState">
+                <div class="empty-icon" aria-hidden="true">${icon}</div>
+                <h4>${escapeHTML(title)}</h4>
+                <p>${escapeHTML(message)}</p>
+                ${extraHTML}
+            </div>
+        `;
+
+        refreshIcons();
+    }
+
+    function showGlossaryEmpty() {
+        const hasDocument = Boolean(byId('glossaryDocumentSelect').value);
+
+        showGlossaryState(
+            '<i data-lucide="book-open"></i>',
+            'No glossary yet',
+            hasDocument
+                ? 'Select Generate Glossary to find the key terms in this document and define them.'
+                : 'Choose an uploaded document and select Generate Glossary. DocuMind finds the key terms and defines them using the document\'s own text.'
+        );
+    }
+
+    function showGlossaryLoading() {
+        byId('glossaryControls').hidden = true;
+        byId('glossaryCount').hidden = true;
+        byId('exportGlossaryBtn').disabled = true;
+
+        byId('glossaryOutput').innerHTML = `
+            <div class="empty-state" id="glossaryEmptyState" role="status">
+                <div class="empty-icon" aria-hidden="true"><span class="spinner"></span></div>
+                <h4>Building your glossary</h4>
+                <p>Reading the document, finding the important terms and writing definitions. Long PDFs can take a minute.</p>
+            </div>
+        `;
+    }
+
+    function showGlossaryError(message) {
+        showGlossaryState(
+            '<i data-lucide="circle-alert"></i>',
+            'Could not generate glossary',
+            message,
+            `<button class="btn btn-secondary" id="glossaryRetryBtn" type="button">
+                <i data-lucide="rotate-ccw"></i><span>Try again</span>
+            </button>`
+        );
+    }
+
+    function updateGlossaryButton() {
+        const label = byId('generateGlossaryBtn')?.querySelector('span');
+        const documentId = byId('glossaryDocumentSelect').value;
+
+        if (!label) return;
+
+        label.textContent = glossaryState.cache[documentId]
+            ? 'Regenerate Glossary'
+            : 'Generate Glossary';
+    }
+
+    function renderGlossaryLetters(entries) {
+        const present = new Set(entries.map(entry => glossaryLetterOf(entry.term)));
+        const letters = [
+            ...'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split(''),
+            '#'
+        ];
+
+        const button = (letter, label, enabled) => `
+            <button
+                class="glossary-letter-btn"
+                type="button"
+                data-letter="${letter}"
+                aria-pressed="${String(glossaryState.letter === letter)}"
+                ${enabled ? '' : 'disabled'}
+            >${escapeHTML(label)}</button>
+        `;
+
+        byId('glossaryLetters').innerHTML =
+            button('all', 'All', true) +
+            letters.map(letter => button(letter, letter, present.has(letter))).join('');
+    }
+
+    function visibleGlossaryTerms(entries) {
+        const query = glossaryState.query.toLowerCase();
+
+        const filtered = entries.filter(entry => {
+            if (
+                glossaryState.letter !== 'all' &&
+                glossaryLetterOf(entry.term) !== glossaryState.letter
+            ) {
+                return false;
+            }
+
+            if (!query) return true;
+
+            return (
+                entry.term.toLowerCase().includes(query) ||
+                entry.simple.toLowerCase().includes(query) ||
+                entry.technical.toLowerCase().includes(query)
+            );
+        });
+
+        const direction = glossaryState.sort === 'desc' ? -1 : 1;
+
+        return filtered.sort((a, b) =>
+            direction * a.term.localeCompare(b.term, undefined, { sensitivity: 'base' })
+        );
+    }
+
+    function glossaryEntryMarkup(entry) {
+        const technicalView = glossaryState.view === 'technical';
+        const definition = technicalView && entry.technical
+            ? entry.technical
+            : entry.simple;
+
+        const pages = entry.pages.length
+            ? `<span class="glossary-pages">${entry.pages.length === 1 ? 'Page' : 'Pages'} ${entry.pages.map(escapeHTML).join(', ')}</span>`
+            : '';
+
+        const source = entry.sourceType === 'document'
+            ? '<span class="badge badge-success" title="This definition is based on the uploaded document.">From document</span>'
+            : '<span class="badge badge-warning" title="The document does not explain this term well enough, so the definition uses general AI knowledge.">AI-supplemented</span>';
+
+        return `
+            <article class="glossary-entry">
+                <div class="glossary-term-row">
+                    <h4 class="glossary-term">${escapeHTML(entry.term)}</h4>
+                    ${pages}
+                </div>
+                <p class="glossary-definition">${escapeHTML(definition)}</p>
+                <div class="glossary-meta">${source}</div>
+            </article>
+        `;
+    }
+
+    // Re-renders only the list, so typing in the search box keeps focus.
+    function renderGlossaryList() {
+        const data = currentGlossary();
+
+        if (!data) return;
+
+        const terms = visibleGlossaryTerms(data.terms);
+        const output = byId('glossaryOutput');
+
+        const note = data.partial
+            ? `<div class="glossary-note" role="note">This PDF is long, so the glossary was built from a selection of its pages and may not include every term.</div>`
+            : '';
+
+        if (!terms.length) {
+            output.innerHTML = `${note}<p class="glossary-no-results">No terms match your search or letter filter.</p>`;
+            return;
+        }
+
+        const sections = [];
+
+        terms.forEach(entry => {
+            const letter = glossaryLetterOf(entry.term);
+            const last = sections[sections.length - 1];
+
+            if (last && last.letter === letter) {
+                last.entries.push(entry);
+            } else {
+                sections.push({ letter, entries: [entry] });
+            }
+        });
+
+        output.innerHTML = note + sections.map(section => `
+            <section class="glossary-section" aria-label="Terms starting with ${escapeHTML(section.letter)}">
+                <h3 class="glossary-letter-heading">${escapeHTML(section.letter)}</h3>
+                ${section.entries.map(glossaryEntryMarkup).join('')}
+            </section>
+        `).join('');
+    }
+
+    function renderGlossary() {
+        const data = currentGlossary();
+
+        if (!data) {
+            showGlossaryEmpty();
+            return;
+        }
+
+        if (!data.terms.length) {
+            showGlossaryState(
+                '<i data-lucide="search-x"></i>',
+                'No glossary terms found',
+                'DocuMind could not find enough meaningful technical terms in this document. Try a longer or more technical PDF.'
+            );
+            return;
+        }
+
+        byId('glossaryControls').hidden = false;
+        byId('exportGlossaryBtn').disabled = false;
+
+        const count = byId('glossaryCount');
+        count.textContent = `${data.terms.length} ${data.terms.length === 1 ? 'term' : 'terms'}`;
+        count.hidden = false;
+
+        renderGlossaryLetters(data.terms);
+        renderGlossaryList();
+        refreshIcons();
+    }
+
+    function resetGlossaryFilters() {
+        glossaryState.query = '';
+        glossaryState.letter = 'all';
+
+        byId('glossarySearch').value = '';
+    }
+
+    function selectGlossaryDocument() {
+        const documentId = byId('glossaryDocumentSelect').value;
+
+        glossaryState.documentId = glossaryState.cache[documentId]
+            ? documentId
+            : '';
+
+        resetGlossaryFilters();
+        updateGlossaryButton();
+        renderGlossary();
+    }
+
+    // Called whenever the document list changes (upload, delete, reload).
+    function syncGlossaryWithDocuments() {
+        const known = new Set(state.documents.map(doc => doc.id));
+
+        Object.keys(glossaryState.cache).forEach(id => {
+            if (!known.has(id)) delete glossaryState.cache[id];
+        });
+
+        if (
+            glossaryState.documentId &&
+            !glossaryState.cache[glossaryState.documentId]
+        ) {
+            glossaryState.documentId = '';
+            resetGlossaryFilters();
+            renderGlossary();
+        }
+
+        updateGlossaryButton();
+    }
+
+    async function generateGlossary(event) {
+        event?.preventDefault();
+
+        if (glossaryState.busy) return;
+
+        const select = byId('glossaryDocumentSelect');
+        const documentId = select.value;
+
+        if (!documentId) {
+            return toast('Select a document first.', 'warning');
+        }
+
+        const button = byId('generateGlossaryBtn');
+
+        glossaryState.busy = true;
+        select.disabled = true;
+
+        setButtonLoading(button, true, 'Generating glossary');
+        showGlossaryLoading();
+
+        try {
+            const result = await apiRequest(
+                API_ROUTES.glossary,
+                {
+                    method: 'POST',
+                    body: JSON.stringify({ document_id: documentId }),
+                    // Long PDFs are read in several AI requests.
+                    timeout: 240000
+                }
+            );
+
+            const terms = normaliseGlossaryTerms(result.terms);
+            const doc = state.documents.find(item => item.id === documentId);
+
+            glossaryState.cache[documentId] = {
+                documentId,
+                filename: safeText(result.filename, doc?.name || 'document'),
+                terms,
+                partial: Boolean(result.partial)
+            };
+
+            glossaryState.documentId = documentId;
+
+            resetGlossaryFilters();
+            renderGlossary();
+
+            toast(
+                terms.length
+                    ? `Glossary generated: ${terms.length} terms.`
+                    : 'No glossary terms were found in this document.',
+                terms.length ? 'success' : 'info'
+            );
+
+        } catch (error) {
+            showGlossaryError(error.message);
+
+            toast(
+                `Glossary failed: ${error.message}`,
+                'error'
+            );
+
+        } finally {
+            glossaryState.busy = false;
+            select.disabled = false;
+
+            setButtonLoading(button, false);
+
+            // Let the visible label (Generate / Regenerate) name the button again.
+            button.removeAttribute('aria-label');
+            delete button.dataset.originalAriaLabel;
+
+            updateGlossaryButton();
+        }
+    }
+
+    function downloadBlob(filename, blob) {
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement('a');
+
+        anchor.href = url;
+        anchor.download = filename;
+
+        document.body.appendChild(anchor);
+        anchor.click();
+        anchor.remove();
+
+        window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }
+
+    async function exportGlossaryPdf() {
+        const data = currentGlossary();
+
+        if (!data || !data.terms.length) {
+            return toast('Generate a glossary first.', 'warning');
+        }
+
+        const button = byId('exportGlossaryBtn');
+        const controller = new AbortController();
+        const timeout = window.setTimeout(() => controller.abort(), 60000);
+
+        setButtonLoading(button, true, 'Exporting PDF');
+
+        try {
+            const response = await fetch(apiURL(API_ROUTES.glossaryExport), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                signal: controller.signal,
+                body: JSON.stringify({
+                    document_id: data.documentId,
+                    view: glossaryState.view,
+                    terms: data.terms.map(entry => ({
+                        term: entry.term,
+                        simple_definition: entry.simple,
+                        technical_definition: entry.technical,
+                        source_type: entry.sourceType,
+                        pages: entry.pages
+                    }))
+                })
+            });
+
+            if (!response.ok) {
+                let payload = null;
+
+                try {
+                    payload = await response.json();
+                } catch (_) {
+                    // Keep the generic status message.
+                }
+
+                throw new Error(formatApiError(payload, response.status));
+            }
+
+            const baseName = data.filename
+                .replace(/\.pdf$/i, '')
+                .replace(/[^\w\-]+/g, '-')
+                .replace(/^-+|-+$/g, '') || 'document';
+
+            downloadBlob(`${baseName}-glossary.pdf`, await response.blob());
+
+            toast('Glossary PDF downloaded.', 'success');
+
+        } catch (error) {
+            const message = error.name === 'AbortError'
+                ? 'The export timed out. Please try again.'
+                : error instanceof TypeError
+                    ? 'Cannot reach the backend. Check that FastAPI is running and the API URL is correct.'
+                    : error.message;
+
+            toast(`Export failed: ${message}`, 'error');
+
+        } finally {
+            window.clearTimeout(timeout);
+            setButtonLoading(button, false);
+            button.removeAttribute('aria-label');
+            delete button.dataset.originalAriaLabel;
+        }
+    }
+
+    function bindGlossaryEvents() {
+        byId('glossaryForm').addEventListener('submit', generateGlossary);
+
+        byId('glossaryDocumentSelect').addEventListener(
+            'change',
+            selectGlossaryDocument
+        );
+
+        byId('exportGlossaryBtn').addEventListener('click', exportGlossaryPdf);
+
+        byId('glossarySearch').addEventListener('input', event => {
+            glossaryState.query = event.target.value.trim();
+            renderGlossaryList();
+        });
+
+        byId('glossarySort').addEventListener('change', event => {
+            glossaryState.sort = event.target.value === 'desc' ? 'desc' : 'asc';
+            renderGlossaryList();
+        });
+
+        byId('glossaryControls').addEventListener('click', event => {
+            const viewButton = event.target.closest('[data-glossary-view]');
+
+            if (viewButton) {
+                glossaryState.view =
+                    viewButton.dataset.glossaryView === 'technical'
+                        ? 'technical'
+                        : 'simple';
+
+                $$('[data-glossary-view]').forEach(item => {
+                    const active = item.dataset.glossaryView === glossaryState.view;
+
+                    item.classList.toggle('active', active);
+                    item.setAttribute('aria-pressed', String(active));
+                });
+
+                renderGlossaryList();
+                return;
+            }
+
+            const letterButton = event.target.closest('[data-letter]');
+
+            if (letterButton && !letterButton.disabled) {
+                const letter = letterButton.dataset.letter;
+
+                // Selecting the active letter again clears the filter.
+                glossaryState.letter =
+                    glossaryState.letter === letter ? 'all' : letter;
+
+                $$('.glossary-letter-btn').forEach(item => {
+                    item.setAttribute(
+                        'aria-pressed',
+                        String(item.dataset.letter === glossaryState.letter)
+                    );
+                });
+
+                renderGlossaryList();
+            }
+        });
+
+        byId('glossaryOutput').addEventListener('click', event => {
+            if (event.target.closest('#glossaryRetryBtn')) {
+                generateGlossary();
+            }
+        });
+    }
+
     /* -------------------------------- Settings ----------------------------- */
 
     function fillSettings() {
@@ -2914,6 +3444,8 @@
                 }
             }
         );
+
+        bindGlossaryEvents();
 
         byId('settingsForm').addEventListener(
             'submit',

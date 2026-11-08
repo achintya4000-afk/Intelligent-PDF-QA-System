@@ -3,12 +3,14 @@ from typing import Literal
 
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException
 from fastapi.concurrency import run_in_threadpool
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field
 
 from backend.services.chat_service import process_chat_question
 from backend.generation.summarizer import generate_document_summary
 from backend.generation.quiz_generator import generate_document_quiz
+from backend.generation.glossary_generator import generate_document_glossary
+from backend.generation.glossary_export import build_glossary_pdf
 
 from backend.services.document_service import (
     upload_document,
@@ -61,6 +63,19 @@ class QuizRequest(BaseModel):
     document_id: str
     count: Literal[5, 10, 15, 20] = 5
     difficulty: Literal["easy", "medium", "hard"] = "medium"
+
+
+# Glossary Generator request models
+class GlossaryRequest(BaseModel):
+    document_id: str
+
+
+class GlossaryExportRequest(BaseModel):
+    document_id: str
+    view: Literal["simple", "technical", "both"] = "both"
+    # The glossary the user is looking at. It is validated and clipped by
+    # build_glossary_pdf before anything is laid out.
+    terms: list[dict]
 
 
 # Health check
@@ -269,6 +284,60 @@ def generate_quiz(request: QuizRequest):
         raise HTTPException(
             status_code=500,
             detail="An unexpected error occurred while generating the quiz.",
+        )
+
+
+# Generate a glossary of important terms from an uploaded PDF
+@router.post("/api/glossary/generate")
+def generate_glossary(request: GlossaryRequest):
+    try:
+        return generate_document_glossary(
+            document_id=request.document_id
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error))
+    except FileNotFoundError as error:
+        raise HTTPException(status_code=404, detail=str(error))
+    except RuntimeError as error:
+        logger.error("Glossary generation failed: %s", error)
+        raise HTTPException(
+            status_code=502,
+            detail="Unable to generate the glossary. Please try again.",
+        )
+    except Exception:
+        logger.exception("Unexpected error while generating a glossary")
+        raise HTTPException(
+            status_code=500,
+            detail="An unexpected error occurred while generating the glossary.",
+        )
+
+
+# Export a generated glossary as a PDF download
+@router.post("/api/glossary/export")
+def export_glossary(request: GlossaryExportRequest):
+    try:
+        pdf_bytes = build_glossary_pdf(
+            document_id=request.document_id,
+            terms=request.terms,
+            view=request.view,
+        )
+
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": 'attachment; filename="glossary.pdf"'
+            },
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error))
+    except FileNotFoundError as error:
+        raise HTTPException(status_code=404, detail=str(error))
+    except Exception:
+        logger.exception("Unexpected error while exporting a glossary")
+        raise HTTPException(
+            status_code=500,
+            detail="Unable to create the glossary PDF.",
         )
 
 

@@ -985,6 +985,7 @@ html[data-route="documents"] .nav-link[data-page="documents"],
 html[data-route="assistant"] .nav-link[data-page="assistant"],
 html[data-route="summarizer"] .nav-link[data-page="summarizer"],
 html[data-route="quiz"] .nav-link[data-page="quiz"],
+html[data-route="glossary"] .nav-link[data-page="glossary"],
 html[data-route="settings"] .nav-link[data-page="settings"],
 .nav-link.active,
 .nav-link[aria-current="page"] {
@@ -1015,6 +1016,7 @@ html[data-route="documents"] .nav-link[data-page="documents"] .nav-badge,
 html[data-route="assistant"] .nav-link[data-page="assistant"] .nav-badge,
 html[data-route="summarizer"] .nav-link[data-page="summarizer"] .nav-badge,
 html[data-route="quiz"] .nav-link[data-page="quiz"] .nav-badge,
+html[data-route="glossary"] .nav-link[data-page="glossary"] .nav-badge,
 html[data-route="settings"] .nav-link[data-page="settings"] .nav-badge,
 .nav-link.active .nav-badge,
 .nav-link[aria-current="page"] .nav-badge {
@@ -1194,6 +1196,7 @@ html[data-route="documents"] .topbar-title [data-route-title="documents"],
 html[data-route="assistant"] .topbar-title [data-route-title="assistant"],
 html[data-route="summarizer"] .topbar-title [data-route-title="summarizer"],
 html[data-route="quiz"] .topbar-title [data-route-title="quiz"],
+html[data-route="glossary"] .topbar-title [data-route-title="glossary"],
 html[data-route="settings"] .topbar-title [data-route-title="settings"],
 html:not([data-route]) .topbar-title [data-route-subtitle="dashboard"],
 html[data-route="dashboard"] .topbar-title [data-route-subtitle="dashboard"],
@@ -1201,6 +1204,7 @@ html[data-route="documents"] .topbar-title [data-route-subtitle="documents"],
 html[data-route="assistant"] .topbar-title [data-route-subtitle="assistant"],
 html[data-route="summarizer"] .topbar-title [data-route-subtitle="summarizer"],
 html[data-route="quiz"] .topbar-title [data-route-subtitle="quiz"],
+html[data-route="glossary"] .topbar-title [data-route-subtitle="glossary"],
 html[data-route="settings"] .topbar-title [data-route-subtitle="settings"] {
     display: inline;
 }
@@ -1322,6 +1326,7 @@ html[data-route="documents"] #page-documents,
 html[data-route="assistant"] #page-assistant,
 html[data-route="summarizer"] #page-summarizer,
 html[data-route="quiz"] #page-quiz,
+html[data-route="glossary"] #page-glossary,
 html[data-route="settings"] #page-settings {
     display: block;
 }
@@ -1759,8 +1764,16 @@ html[data-route="settings"] #page-settings {
 /* ---------- Feature cards ---------- */
 .feature-grid {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: var(--space-4);
+}
+
+/* Four cards need more room than three: below this width they sit in two
+   columns (the 1100px and 520px rules further down still apply after it). */
+@media (max-width: 1220px) {
+    .feature-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
 }
 
 .feature-card {
@@ -3646,6 +3659,7 @@ dialog.modal::backdrop {
     html[data-route="assistant"] #page-assistant,
     html[data-route="summarizer"] #page-summarizer,
     html[data-route="quiz"] #page-quiz,
+    html[data-route="glossary"] #page-glossary,
     html[data-route="settings"] #page-settings {
         animation: page-section-in .5s ease-out both;
     }
@@ -4005,4 +4019,202 @@ dialog.modal::backdrop {
     background: var(--success-soft);
     border-color: var(--success-border);
     color: var(--success);
+}
+
+
+/* ==========================================================================
+   13. GLOSSARY GENERATOR
+   Reuses .tool-layout / .tool-form / .tool-output / .output-body from section 9.
+   Markup: .glossary-controls (search, sort, .glossary-view, .glossary-letters)
+           .glossary-section > .glossary-letter-heading + .glossary-entry*
+           .glossary-entry > .glossary-term-row (.glossary-term + .glossary-pages)
+                           + .glossary-definition + .glossary-meta (.badge)
+   ========================================================================== */
+
+.glossary-controls {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-3);
+    padding: 14px var(--space-5);
+    border-bottom: 1px solid var(--border);
+}
+
+.glossary-controls .search-box {
+    flex: 1 1 200px;
+    min-width: 0;
+    max-width: 320px;
+}
+
+.glossary-sort {
+    width: 110px;
+}
+
+.glossary-view {
+    margin-left: auto;
+}
+
+.glossary-view .btn {
+    height: 30px;
+    padding: 0 12px;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 12.5px;
+}
+
+.glossary-view .btn:hover {
+    color: var(--text);
+}
+
+.glossary-view .btn.active,
+.glossary-view .btn[aria-pressed="true"] {
+    background: var(--accent-soft);
+    color: var(--accent-text);
+    box-shadow: inset 0 0 0 1px var(--accent-border);
+}
+
+.glossary-letters {
+    display: flex;
+    flex: 1 1 100%;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+
+.glossary-letter-btn {
+    display: grid;
+    place-items: center;
+    min-width: 28px;
+    height: 28px;
+    padding: 0 6px;
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 12px;
+    font-weight: 600;
+    transition: var(--t-colors);
+}
+
+.glossary-letter-btn:hover:not(:disabled) {
+    background: var(--surface-hover);
+    color: var(--text);
+}
+
+.glossary-letter-btn[aria-pressed="true"] {
+    background: var(--accent-soft);
+    border-color: var(--accent-border);
+    color: var(--accent-text);
+}
+
+.glossary-letter-btn:disabled {
+    opacity: .35;
+    cursor: default;
+}
+
+.glossary-letter-btn:focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
+}
+
+.glossary-note {
+    margin-bottom: var(--space-4);
+    padding: 10px 12px;
+    border: 1px solid var(--warning-border);
+    border-radius: var(--radius-md);
+    background: var(--warning-soft);
+    color: var(--warning);
+    font-size: 12.5px;
+    line-height: 1.55;
+}
+
+.glossary-section + .glossary-section {
+    margin-top: var(--space-5);
+}
+
+.glossary-letter-heading {
+    margin-bottom: var(--space-3);
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--accent-border);
+    color: var(--accent-text);
+    font-size: 15px;
+    font-weight: 700;
+}
+
+.glossary-entry {
+    margin-bottom: var(--space-3);
+    padding: var(--space-4);
+    background: var(--glass-inner);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-xs);
+}
+
+.glossary-entry:last-child {
+    margin-bottom: 0;
+}
+
+.glossary-term-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space-2);
+    margin-bottom: 6px;
+}
+
+.glossary-term {
+    min-width: 0;
+    font-size: 14.5px;
+    font-weight: 650;
+    line-height: 1.4;
+}
+
+.glossary-pages {
+    flex-shrink: 0;
+    padding: 1px 8px;
+    border-radius: var(--radius-full);
+    background: var(--accent-soft);
+    color: var(--accent-text);
+    font-size: 11px;
+    font-weight: 600;
+}
+
+.glossary-definition {
+    color: var(--text-muted);
+    font-size: 13.5px;
+    line-height: 1.65;
+}
+
+.glossary-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 10px;
+}
+
+.glossary-meta .badge {
+    font-size: 11px;
+}
+
+.glossary-no-results {
+    padding: var(--space-6) var(--space-4);
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 13px;
+}
+
+@media (max-width: 768px) {
+    .glossary-controls {
+        padding: 12px var(--space-4);
+    }
+
+    .glossary-controls .search-box {
+        flex-basis: 100%;
+        max-width: none;
+    }
+
+    .glossary-view {
+        margin-left: 0;
+    }
 }
