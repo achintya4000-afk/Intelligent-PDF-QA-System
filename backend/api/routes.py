@@ -2,6 +2,7 @@ import logging
 from typing import Literal
 
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
@@ -101,7 +102,10 @@ async def upload_pdf(
     try:
         pdf_bytes = await file.read()
 
-        document = upload_document(
+        # Extraction (including OCR of scanned pages) can take a while, so it
+        # runs in a worker thread and does not block the server's event loop.
+        document = await run_in_threadpool(
+            upload_document,
             filename=file.filename or "",
             pdf_bytes=pdf_bytes,
             chunk_size=chunk_size
