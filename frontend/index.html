@@ -754,6 +754,25 @@
     </div>
 </div>
 
+<!-- PDF viewer (opened from document cards, glossary pages and chat sources) -->
+<div class="pdf-viewer" id="pdfViewer" role="dialog" aria-modal="true" aria-labelledby="pdfViewerTitle" hidden>
+    <div class="pdf-viewer-backdrop" data-pdf-close></div>
+    <div class="pdf-viewer-panel">
+        <div class="pdf-viewer-header">
+            <h3 id="pdfViewerTitle">Document</h3>
+            <div class="pdf-viewer-actions">
+                <a class="btn btn-secondary btn-sm" id="pdfViewerNewTab" href="#" target="_blank" rel="noopener">
+                    <i data-lucide="external-link"></i><span>Open in new tab</span>
+                </a>
+                <button class="icon-btn" id="pdfViewerClose" type="button" aria-label="Close PDF viewer">
+                    <i data-lucide="x"></i>
+                </button>
+            </div>
+        </div>
+        <div class="pdf-viewer-body" id="pdfViewerBody"></div>
+    </div>
+</div>
+
 <!-- Toast notifications -->
 <div class="toast-container" id="toastContainer" role="status" aria-live="polite" aria-atomic="true"></div>
 

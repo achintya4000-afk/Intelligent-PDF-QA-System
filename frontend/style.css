@@ -4171,13 +4171,40 @@ dialog.modal::backdrop {
 }
 
 .glossary-pages {
+    display: inline-flex;
     flex-shrink: 0;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px;
+    color: var(--text-subtle);
+    font-size: 11px;
+    font-weight: 600;
+}
+
+/* Page numbers open the PDF at that page. */
+.glossary-page-link,
+.source-page-link {
     padding: 1px 8px;
+    border: 0;
     border-radius: var(--radius-full);
     background: var(--accent-soft);
     color: var(--accent-text);
+    font: inherit;
     font-size: 11px;
     font-weight: 600;
+    cursor: pointer;
+    transition: var(--t-colors);
+}
+
+.glossary-page-link:hover,
+.source-page-link:hover {
+    background: var(--accent-border);
+}
+
+.glossary-page-link:focus-visible,
+.source-page-link:focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
 }
 
 .glossary-definition {
@@ -4216,5 +4243,98 @@ dialog.modal::backdrop {
 
     .glossary-view {
         margin-left: 0;
+    }
+}
+
+
+/* ==========================================================================
+   14. PDF VIEWER
+   Full-screen dialog with the browser's own PDF viewer in an <iframe>.
+   Opened by openPdfViewer() in script.js.
+   ========================================================================== */
+
+.pdf-viewer {
+    position: fixed;
+    inset: 0;
+    z-index: var(--z-modal);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: var(--space-5);
+}
+
+.pdf-viewer-backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(15, 12, 35, .55);
+    -webkit-backdrop-filter: blur(4px);
+    backdrop-filter: blur(4px);
+}
+
+.pdf-viewer-panel {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    width: min(1100px, 100%);
+    height: 100%;
+    overflow: hidden;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-lg);
+}
+
+.pdf-viewer-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    padding: 10px var(--space-4);
+    border-bottom: 1px solid var(--border);
+}
+
+.pdf-viewer-header h3 {
+    min-width: 0;
+    overflow: hidden;
+    font-size: 14.5px;
+    font-weight: 600;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.pdf-viewer-actions {
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+.pdf-viewer-body {
+    flex: 1;
+    min-height: 0;
+    background: var(--surface-2);
+}
+
+.pdf-viewer-frame {
+    display: block;
+    width: 100%;
+    height: 100%;
+    border: 0;
+}
+
+/* Clicking a document's name or icon opens the PDF. */
+.document-item .document-info,
+.document-item .document-icon {
+    cursor: pointer;
+}
+
+@media (max-width: 768px) {
+    .pdf-viewer {
+        padding: 0;
+    }
+
+    .pdf-viewer-panel {
+        border: 0;
+        border-radius: 0;
     }
 }

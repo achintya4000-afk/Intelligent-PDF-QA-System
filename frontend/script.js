@@ -21,6 +21,7 @@
                                    response {document_id, filename, term_count, partial,
                                              terms:[{term, simple_definition, technical_definition,
                                                      source_type: "document"|"ai_supplemented", pages:[n]}]}
+   GET  /api/documents/{id}/file -> the original uploaded PDF (shown in the PDF viewer)
    POST /api/glossary/export    -> request {document_id, view: "simple"|"technical"|"both", terms}; returns a PDF file
    DELETE /api/documents/{id}   -> success response
 
@@ -907,6 +908,17 @@
                     <button
                         class="icon-btn"
                         type="button"
+                        data-action="open-pdf"
+                        data-id="${id}"
+                        aria-label="Open ${name}"
+                        title="Open PDF"
+                    >
+                        <i data-lucide="eye"></i>
+                    </button>
+
+                    <button
+                        class="icon-btn"
+                        type="button"
                         data-action="ask"
                         data-id="${id}"
                         aria-label="Ask questions about ${name}"
@@ -1623,6 +1635,28 @@
         refreshIcons();
     }
 
+    // The page badge opens the PDF at that page when the chat has a document.
+    function sourcePageMarkup(page) {
+        const documentId = activeChat()?.documentId;
+        const pageNumber = Number.parseInt(page, 10);
+        const label = `Page ${escapeHTML(page)}`;
+
+        if (!documentId || !(pageNumber > 0)) {
+            return `<span class="source-page">${label}</span>`;
+        }
+
+        return `
+            <button
+                class="source-page source-page-link"
+                type="button"
+                data-action="open-pdf"
+                data-id="${escapeHTML(documentId)}"
+                data-pdf-page="${pageNumber}"
+                title="Open this page in the PDF"
+            >${label}</button>
+        `;
+    }
+
     function renderSources(sources, emptyMessage = 'Retrieved passages will appear here after you ask a question.') {
         const list = byId('sourcesList');
 
@@ -1676,9 +1710,7 @@
                             ${escapeHTML(title)} (${escapeHTML(sourceId)})
                         </strong>
 
-                        <span class="source-page">
-                            Page ${escapeHTML(page)}
-                        </span>
+                        ${sourcePageMarkup(page)}
                     </div>
 
                     <p class="source-text">
@@ -2342,6 +2374,85 @@
         }
     }
 
+    /* ----------------------------- PDF viewer ----------------------------- */
+
+    let pdfViewerOpener = null;
+
+    function pdfFileURL(documentId, pageNumber) {
+        const base = apiURL(
+            `${API_ROUTES.documents}/${encodeURIComponent(documentId)}/file`
+        );
+
+        // "#page=N" is understood by the browsers' built-in PDF viewers.
+        return pageNumber > 0 ? `${base}#page=${pageNumber}` : base;
+    }
+
+    function openPdfViewer(documentId, page) {
+        const doc = state.documents.find(item => item.id === documentId);
+
+        if (!doc) {
+            toast('This document is no longer available.', 'warning');
+            return;
+        }
+
+        const pageNumber = Number.parseInt(page, 10) || 0;
+        const url = pdfFileURL(documentId, pageNumber);
+
+        byId('pdfViewerTitle').textContent = pageNumber > 0
+            ? `${doc.name} · Page ${pageNumber}`
+            : doc.name;
+
+        byId('pdfViewerNewTab').href = url;
+
+        // A new <iframe> each time, so a different "#page=" always reloads.
+        const frame = document.createElement('iframe');
+
+        frame.className = 'pdf-viewer-frame';
+        frame.title = `PDF: ${doc.name}`;
+        frame.src = url;
+
+        byId('pdfViewerBody').replaceChildren(frame);
+
+        if (byId('pdfViewer').hidden) {
+            pdfViewerOpener = document.activeElement;
+        }
+
+        byId('pdfViewer').hidden = false;
+        byId('pdfViewerClose').focus();
+        refreshIcons();
+    }
+
+    function closePdfViewer() {
+        const viewer = byId('pdfViewer');
+
+        if (viewer.hidden) return;
+
+        viewer.hidden = true;
+        byId('pdfViewerBody').replaceChildren();
+
+        if (pdfViewerOpener && typeof pdfViewerOpener.focus === 'function') {
+            pdfViewerOpener.focus();
+        }
+
+        pdfViewerOpener = null;
+    }
+
+    function bindPdfViewerEvents() {
+        byId('pdfViewerClose').addEventListener('click', closePdfViewer);
+
+        byId('pdfViewer').addEventListener('click', event => {
+            if (event.target.closest('[data-pdf-close]')) {
+                closePdfViewer();
+            }
+        });
+
+        document.addEventListener('keydown', event => {
+            if (event.key === 'Escape') {
+                closePdfViewer();
+            }
+        });
+    }
+
     /* ---------------------------- Glossary flow --------------------------- */
 
     // Generated glossaries are kept in memory per document, so switching
@@ -2508,8 +2619,21 @@
             ? entry.technical
             : entry.simple;
 
+        const documentId = escapeHTML(glossaryState.documentId);
+
         const pages = entry.pages.length
-            ? `<span class="glossary-pages">${entry.pages.length === 1 ? 'Page' : 'Pages'} ${entry.pages.map(escapeHTML).join(', ')}</span>`
+            ? `<span class="glossary-pages">${entry.pages.length === 1 ? 'Page' : 'Pages'}
+                ${entry.pages.map(page => `
+                    <button
+                        class="glossary-page-link"
+                        type="button"
+                        data-action="open-pdf"
+                        data-id="${documentId}"
+                        data-pdf-page="${escapeHTML(page)}"
+                        title="Open page ${escapeHTML(page)} in the PDF"
+                    >${escapeHTML(page)}</button>
+                `).join('')}
+            </span>`
             : '';
 
         const source = entry.sourceType === 'document'
@@ -3146,6 +3270,20 @@
                 return;
             }
 
+            // Clicking a document's name or icon opens the PDF.
+            const documentArea = event.target.closest(
+                '.document-item .document-info, .document-item .document-icon'
+            );
+
+            if (documentArea) {
+                const item = documentArea.closest('[data-document-id]');
+
+                if (item) {
+                    openPdfViewer(item.dataset.documentId, null);
+                    return;
+                }
+            }
+
             const action = event.target.closest('[data-action]');
 
             if (!action) return;
@@ -3182,6 +3320,10 @@
 
                 case 'delete':
                     deleteDocument(id);
+                    break;
+
+                case 'open-pdf':
+                    openPdfViewer(id, action.dataset.pdfPage);
                     break;
 
                 case 'select-chat':
@@ -3446,6 +3588,7 @@
         );
 
         bindGlossaryEvents();
+        bindPdfViewerEvents();
 
         byId('settingsForm').addEventListener(
             'submit',

@@ -1,9 +1,10 @@
 import logging
 from typing import Literal
+from uuid import UUID
 
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException
 from fastapi.concurrency import run_in_threadpool
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel, Field
 
 from backend.services.chat_service import process_chat_question
@@ -13,6 +14,7 @@ from backend.generation.glossary_generator import generate_document_glossary
 from backend.generation.glossary_export import build_glossary_pdf
 
 from backend.services.document_service import (
+    UPLOAD_DIR,
     upload_document,
     delete_document_service,
     DuplicateDocumentError
@@ -22,7 +24,7 @@ from backend.services.reindex_service import (
     reindex_existing_documents
 )
 
-from backend.storage.document_store import get_all_documents
+from backend.storage.document_store import get_all_documents, get_document
 
 
 router = APIRouter()
@@ -195,6 +197,38 @@ async def reindex_documents():
             status_code=500,
             detail="Unable to complete document re-indexing."
         )
+
+
+# Serve the original uploaded PDF so the browser can display it
+@router.get("/api/documents/{document_id}/file")
+def get_document_file(document_id: str):
+    try:
+        UUID(document_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid document ID.")
+
+    if get_document(document_id) is None:
+        raise HTTPException(status_code=404, detail="Document not found.")
+
+    pdf_path = (UPLOAD_DIR / f"{document_id}.pdf").resolve()
+
+    try:
+        pdf_path.relative_to(UPLOAD_DIR.resolve())
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid document storage location.")
+
+    if not pdf_path.is_file():
+        raise HTTPException(
+            status_code=404,
+            detail="The original PDF file is missing. Please upload it again.",
+        )
+
+    # "inline" makes the browser display the PDF instead of downloading it.
+    return FileResponse(
+        pdf_path,
+        media_type="application/pdf",
+        headers={"Content-Disposition": 'inline; filename="document.pdf"'},
+    )
 
 
 # Delete a document
