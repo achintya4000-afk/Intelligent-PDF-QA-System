@@ -191,8 +191,15 @@ def _process_new_document(
 ) -> dict:
     """Extract, chunk, index and store a PDF that is not a duplicate."""
 
-    # Extract text from PDF
-    extracted_pages = extract_text_from_pdf(pdf_bytes)
+    # Extract text from PDF. Non-fatal OCR problems (for example Gemini
+    # handwriting recognition failing) are collected as warnings; they never
+    # stop the document from being indexed.
+    processing_warnings = []
+
+    extracted_pages = extract_text_from_pdf(
+        pdf_bytes,
+        warnings=processing_warnings
+    )
 
     # Generate text chunks
     chunks = chunk_text(
@@ -222,6 +229,9 @@ def _process_new_document(
         total_chunks=len(chunks),
         sha256=sha256
     )
+
+    if processing_warnings:
+        metadata["processing_warnings"] = processing_warnings
 
     document_id = metadata["id"]
 

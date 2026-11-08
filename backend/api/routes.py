@@ -119,9 +119,19 @@ async def upload_pdf(
             "status": document["status"]
         }
 
-        return {
+        response = {
             "document": public_document
         }
+
+        # Non-fatal processing warnings (for example Gemini handwriting
+        # recognition failed and PaddleOCR output was used). The document is
+        # still indexed and ready; this key is absent when there are none.
+        processing_warnings = document.get("processing_warnings")
+
+        if processing_warnings:
+            response["warnings"] = list(processing_warnings)
+
+        return response
 
     except DuplicateDocumentError as error:
         # 409 Conflict: nothing was created or changed. "detail" keeps the

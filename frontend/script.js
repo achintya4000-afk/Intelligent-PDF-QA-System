@@ -777,6 +777,17 @@
                 setFileStatus(`${doc.name} processed and indexed. Checking document status…`);
                 toast('PDF processing and indexing completed.', 'success');
 
+                // Non-fatal warnings (for example Gemini handwriting
+                // recognition failed). The document is still indexed.
+                const uploadWarnings = Array.isArray(payload.warnings)
+                    ? payload.warnings.filter(item => typeof item === 'string' && item.trim())
+                    : [];
+                const uploadWarningText = uploadWarnings.join(' ');
+
+                if (uploadWarningText) {
+                    toast(uploadWarningText, 'warning', 10000);
+                }
+
                 await loadDocuments(false);
                 let refreshed = state.documents.find(item => item.id === doc.id) || doc;
                 for (let attempt = 0; attempt < 5 && !isDocumentReady(refreshed); attempt += 1) {
@@ -784,7 +795,11 @@
                     await loadDocuments(false);
                     refreshed = state.documents.find(item => item.id === doc.id) || refreshed;
                 }
-                setFileStatus(isDocumentReady(refreshed) ? `${refreshed.name} is ready to use.` : `${refreshed.name} was uploaded and is still processing.`, isDocumentReady(refreshed) ? 'success' : '');
+                if (isDocumentReady(refreshed) && uploadWarningText) {
+                    setFileStatus(`${refreshed.name} is ready to use. Note: ${uploadWarningText}`, 'warning');
+                } else {
+                    setFileStatus(isDocumentReady(refreshed) ? `${refreshed.name} is ready to use.` : `${refreshed.name} was uploaded and is still processing.`, isDocumentReady(refreshed) ? 'success' : '');
+                }
                 // Dashboard uploads keep their original redirect; uploads started
                 // from other pages (My Documents, Assistant, Summarizer, Quiz) stay put.
                 if (document.documentElement.dataset.route === 'dashboard') {

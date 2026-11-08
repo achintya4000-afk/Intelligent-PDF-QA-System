@@ -14,6 +14,7 @@ import logging
 import os
 import re
 import threading
+import time
 from dataclasses import dataclass
 from io import BytesIO
 from typing import Optional
@@ -26,6 +27,34 @@ logger = logging.getLogger(__name__)
 _client = None
 _client_lock = threading.Lock()
 _request_lock = threading.Lock()
+
+# Temporary Gemini failures (rate limit, server error, timeout) are retried at
+# most this many times after the first attempt, with exponential backoff:
+# 2 s before the first retry and 4 s before the second.
+_MAX_RETRIES = 2
+_RETRY_BASE_DELAY_SECONDS = 2.0
+
+
+def _is_retryable_error(error: Exception) -> bool:
+    """
+    True only for temporary failures: HTTP 429, 408 and 5xx responses, and
+    timeouts. Permanent errors (invalid API key, invalid request, permission
+    or model errors) are never retried.
+    """
+    code = getattr(error, "code", None)
+
+    if isinstance(code, int) and not isinstance(code, bool):
+        return code in (408, 429) or 500 <= code <= 599
+
+    if isinstance(error, TimeoutError):
+        return True
+
+    # Timeout exceptions from the HTTP layer (for example a read timeout) do
+    # not carry an HTTP status; recognise them by class name.
+    return any(
+        "timeout" in cls.__name__.lower()
+        for cls in type(error).__mro__
+    )
 
 
 @dataclass(frozen=True)
@@ -150,17 +179,39 @@ def recognize_handwriting_regions(image_bgr: np.ndarray) -> list:
     )
 
     # Serialise calls: the same FastAPI process may receive concurrent uploads.
-    with _request_lock:
-        logger.info(
-            "Sending handwriting region to Gemini model %s (timeout: %s ms).",
-            model,
-            os.getenv("GEMINI_TIMEOUT_MS", "60000")
-        )
-        response = client.models.generate_content(
-            model=model,
-            contents=[_PROMPT, image_part],
-            config=config
-        )
+    # The lock is held only while a request is in flight, not while waiting
+    # between retries.
+    response = None
+
+    for attempt in range(_MAX_RETRIES + 1):
+        try:
+            with _request_lock:
+                logger.info(
+                    "Sending handwriting region to Gemini model %s "
+                    "(timeout: %s ms).",
+                    model,
+                    os.getenv("GEMINI_TIMEOUT_MS", "60000")
+                )
+                response = client.models.generate_content(
+                    model=model,
+                    contents=[_PROMPT, image_part],
+                    config=config
+                )
+            break
+        except Exception as error:
+            if attempt >= _MAX_RETRIES or not _is_retryable_error(error):
+                raise
+
+            delay = _RETRY_BASE_DELAY_SECONDS * (2 ** attempt)
+            logger.warning(
+                "Gemini handwriting request failed with a temporary error "
+                "(%r); retry %s of %s in %.0f s.",
+                error,
+                attempt + 1,
+                _MAX_RETRIES,
+                delay
+            )
+            time.sleep(delay)
 
     payload = _extract_json(response.text)
     regions = payload.get("regions", [])

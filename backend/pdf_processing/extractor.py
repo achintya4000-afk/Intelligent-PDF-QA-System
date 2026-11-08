@@ -51,9 +51,15 @@ class _ExtractionState:
         self.ocr_attempted_pages = 0
         self.ocr_failed_pages = 0
         self.ocr_unavailable = False
+        # PaddleOCR could not start. Gemini handwriting recognition may still
+        # run, so this is tracked separately from ocr_unavailable (which turns
+        # off all OCR for the remaining pages).
+        self.paddle_unavailable = False
+        # 1-based numbers of pages where Gemini handwriting recognition failed.
+        self.gemini_failed_pages = set()
 
 
-def extract_text_from_pdf(pdf_bytes: bytes) -> list:
+def extract_text_from_pdf(pdf_bytes: bytes, warnings: list = None) -> list:
     """
     Extract text from a PDF file provided as bytes.
 
@@ -64,6 +70,10 @@ def extract_text_from_pdf(pdf_bytes: bytes) -> list:
 
     Returns a list containing the text and page number
     for each page.
+
+    warnings: optional list. When given, short user-facing processing
+    warnings (for example Gemini handwriting recognition failing on some
+    pages) are appended to it. The return value is unchanged.
     """
 
     if not pdf_bytes:
@@ -114,6 +124,16 @@ def extract_text_from_pdf(pdf_bytes: bytes) -> list:
                 state.ocr_failed_pages
             )
 
+        if state.gemini_failed_pages and warnings is not None:
+            failed_pages = sorted(state.gemini_failed_pages)
+            page_label = ", ".join(str(number) for number in failed_pages)
+            warnings.append(
+                "Gemini handwriting recognition failed on page(s) "
+                f"{page_label}. The document was indexed using the other "
+                "extracted text, so handwritten text on those pages may be "
+                "missing or inaccurate."
+            )
+
         if not extracted_pages:
             raise ValueError(_no_text_message(state))
 
@@ -132,7 +152,7 @@ def extract_text_from_pdf(pdf_bytes: bytes) -> list:
 
 
 def _no_text_message(state: _ExtractionState) -> str:
-    if state.ocr_unavailable:
+    if state.ocr_unavailable or state.paddle_unavailable:
         return (
             "This PDF appears to be scanned, but local OCR is not available. "
             "Install the OCR dependencies from requirements.txt and "
@@ -174,7 +194,7 @@ def _extract_page_text(page, page_number: int, state: _ExtractionState) -> str:
     rescue_if_empty = not digital_text
 
     try:
-        ocr_lines = _ocr_regions(page, plan, rescue_if_empty)
+        ocr_lines = _ocr_regions(page, plan, rescue_if_empty, state)
     except OCRUnavailableError as error:
         # The engine cannot start; do not retry it for every remaining page.
         logger.warning("OCR unavailable: %s", error)
@@ -385,7 +405,12 @@ def _image_regions(page) -> tuple:
 # Rendering and OCR
 # ---------------------------------------------------------------------------
 
-def _ocr_regions(page, regions: list, rescue_if_empty: bool) -> list:
+def _ocr_regions(
+    page,
+    regions: list,
+    rescue_if_empty: bool,
+    state: "_ExtractionState" = None
+) -> list:
     """
     OCR the given regions (None = whole page) of one page.
 
@@ -398,7 +423,7 @@ def _ocr_regions(page, regions: list, rescue_if_empty: bool) -> list:
 
     for region in regions:
         try:
-            lines.extend(_ocr_region(page, region, rescue_if_empty))
+            lines.extend(_ocr_region(page, region, rescue_if_empty, state))
         except OCRUnavailableError:
             raise
         except Exception:
@@ -411,7 +436,12 @@ def _ocr_regions(page, regions: list, rescue_if_empty: bool) -> list:
     return lines
 
 
-def _ocr_region(page, region, rescue_if_empty: bool) -> list:
+def _ocr_region(
+    page,
+    region,
+    rescue_if_empty: bool,
+    state: "_ExtractionState" = None
+) -> list:
     """
     Render one region (or the whole page), run OCR and return lines with
     boxes in PDF points.
@@ -457,15 +487,46 @@ def _ocr_region(page, region, rescue_if_empty: bool) -> list:
 
     image, offset_x, offset_y = ocr_engine.crop_dark_borders(image)
 
-    # PaddleOCR remains the primary local OCR engine for printed text.
-    paddle_lines = ocr_engine.recognize_image(
-        image,
-        rescue_if_empty=rescue_if_empty
-    )
+    # PaddleOCR remains the primary local OCR engine for printed text. A
+    # PaddleOCR failure must not stop Gemini from reading this region, so the
+    # error is remembered here and only raised below if Gemini adds nothing.
+    paddle_lines = []
+    paddle_error = None
+
+    if state is not None and state.paddle_unavailable:
+        # PaddleOCR could not start earlier in this document; do not retry it
+        # for every region.
+        paddle_error = OCRUnavailableError("PaddleOCR is unavailable.")
+    else:
+        try:
+            paddle_lines = ocr_engine.recognize_image(
+                image,
+                rescue_if_empty=rescue_if_empty
+            )
+        except OCRUnavailableError as error:
+            paddle_error = error
+
+            if state is not None:
+                state.paddle_unavailable = True
+
+            logger.warning(
+                "PaddleOCR is unavailable; trying Gemini handwriting "
+                "recognition only: %s",
+                error
+            )
+        except Exception as error:
+            paddle_error = error
+            logger.warning(
+                "PaddleOCR failed for one region; trying Gemini handwriting "
+                "recognition only: %s",
+                error
+            )
 
     # Gemini is an optional handwriting recogniser. It returns the locations
     # and transcription of handwritten regions only. If the API is unavailable
     # or returns unusable coordinates, PaddleOCR output is retained unchanged.
+    handwriting_lines = []
+
     try:
         from backend.pdf_processing.handwriting_engine import (
             recognize_handwriting_regions,
@@ -479,10 +540,34 @@ def _ocr_region(page, region, rescue_if_empty: bool) -> list:
         )
         lines.extend(handwriting_lines)
     except Exception:
-        logger.exception(
-            "Hybrid handwriting OCR failed; falling back to PaddleOCR only."
-        )
+        handwriting_lines = []
+
+        if paddle_error is None:
+            logger.exception(
+                "Hybrid handwriting OCR failed; falling back to PaddleOCR only."
+            )
+        else:
+            logger.exception(
+                "Hybrid handwriting OCR failed and PaddleOCR also failed "
+                "for this region."
+            )
+
         lines = paddle_lines
+
+        # Remember the page so the upload response can warn the user.
+        if state is not None:
+            page_index = getattr(page, "number", None)
+
+            if isinstance(page_index, int):
+                state.gemini_failed_pages.add(page_index + 1)
+
+    # Both engines produced nothing because PaddleOCR failed: report this
+    # region as failed. The caller keeps the page's digital text and carries
+    # on with the remaining pages.
+    if paddle_error is not None and not handwriting_lines:
+        raise OCRInferenceError(
+            "OCR failed for this region."
+        ) from paddle_error
 
     del image
 
