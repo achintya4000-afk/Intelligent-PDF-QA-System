@@ -2410,23 +2410,69 @@
         byId('pdfViewerBody').appendChild(notice);
     }
 
-    async function checkPdfHighlight(documentId, pageNumber, term, requestId) {
+    // Zoom used when a glossary link opens the PDF (percent). The viewer is
+    // positioned with the PDF "#page=N&zoom=scale,left,top" open parameters.
+    const PDF_TERM_ZOOM = 100;
+
+    // "#page=N&zoom=scale,left,top" that puts the first match in the middle of
+    // the visible area. left/top are PDF points from the page's top-left
+    // corner, taken from the term's real position on the page.
+    function pdfTermFragment(pageNumber, position, frame) {
+        const pagePart = `#page=${pageNumber}`;
+
+        if (!position || !frame) return pagePart;
+
+        const pointsPerPixel = 72 / (96 * (PDF_TERM_ZOOM / 100));
+        const viewWidth = frame.clientWidth * pointsPerPixel;
+        const viewHeight = frame.clientHeight * pointsPerPixel;
+
+        const values = [position.x0, position.y0, position.x1, position.y1];
+
+        if (
+            !(viewWidth > 0) ||
+            !(viewHeight > 0) ||
+            !values.every(Number.isFinite)
+        ) {
+            return pagePart;
+        }
+
+        const left = Math.max(0, (position.x0 + position.x1) / 2 - viewWidth / 2);
+        const top = Math.max(0, (position.y0 + position.y1) / 2 - viewHeight / 2);
+
+        return `${pagePart}&zoom=${PDF_TERM_ZOOM},${Math.round(left)},${Math.round(top)}`;
+    }
+
+    // Asks the backend where the term is, then loads the PDF in the frame.
+    // The frame is loaded only once (after this answer) so that the viewer
+    // starts at the term. If anything fails, the PDF still opens at the page.
+    async function checkPdfHighlight(documentId, pageNumber, term, requestId, frame, url) {
+        let finalUrl = url;
+
         try {
             const query = `page=${pageNumber}&term=${encodeURIComponent(term)}`;
             const response = await fetch(apiURL(
                 `${API_ROUTES.documents}/${encodeURIComponent(documentId)}/highlight-info?${query}`
             ));
 
-            if (!response.ok) return;
+            if (response.ok) {
+                const data = await response.json();
 
-            const data = await response.json();
+                if (requestId !== pdfHighlightRequest) return;
 
-            if (requestId === pdfHighlightRequest && data.matches === 0) {
-                showPdfTermNotice('Term not found on this page');
+                if (data.matches === 0) {
+                    showPdfTermNotice('Term not found on this page');
+                } else {
+                    finalUrl = url.split('#')[0] + pdfTermFragment(pageNumber, data.position, frame);
+                }
             }
         } catch (error) {
-            // The PDF itself still opens; only the notice is skipped.
+            // The PDF itself still opens; only the notice and scrolling are skipped.
         }
+
+        if (requestId !== pdfHighlightRequest) return;
+
+        frame.src = finalUrl;
+        byId('pdfViewerNewTab').href = finalUrl;
     }
 
     function openPdfViewer(documentId, page, term) {
@@ -2457,12 +2503,16 @@
 
         frame.className = 'pdf-viewer-frame';
         frame.title = `PDF: ${doc.name}`;
-        frame.src = url;
+
+        // Glossary links load the frame after the term has been located.
+        if (!highlight) {
+            frame.src = url;
+        }
 
         byId('pdfViewerBody').replaceChildren(frame);
 
         if (highlight) {
-            checkPdfHighlight(documentId, pageNumber, highlightTerm, pdfHighlightRequest);
+            checkPdfHighlight(documentId, pageNumber, highlightTerm, pdfHighlightRequest, frame, url);
         }
 
         if (byId('pdfViewer').hidden) {

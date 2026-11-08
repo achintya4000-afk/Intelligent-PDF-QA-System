@@ -219,6 +219,21 @@ def highlight_term(
     Returns (None, 0) when the term is not on the page or the page does not
     exist; the caller then serves the original, unchanged PDF.
     """
+    data, matches, _ = highlight_term_with_position(pdf_path, page_number, term)
+
+    return data, matches
+
+
+def highlight_term_with_position(
+    pdf_path: Path, page_number: int, term: str
+) -> tuple[bytes | None, int, dict | None]:
+    """Like highlight_term, plus where the first match is on the page.
+
+    The position is the first highlighted rectangle in PyMuPDF page
+    coordinates (points, origin at the top-left of the page) together with
+    the page size, so the viewer can scroll to it. It is None when there is
+    no match, or when the page is rotated (coordinates would not line up).
+    """
     stat = pdf_path.stat()
     key = (str(pdf_path), stat.st_mtime_ns, page_number, term)
 
@@ -229,20 +244,33 @@ def highlight_term(
 
     with pymupdf.open(pdf_path) as document:
         if page_number < 1 or page_number > document.page_count:
-            return None, 0
+            return None, 0, None
 
         page = document[page_number - 1]
         rects = find_term_rects(page, term)
 
         if not rects:
-            result: tuple[bytes | None, int] = (None, 0)
+            result: tuple[bytes | None, int, dict | None] = (None, 0, None)
         else:
+            position = None
+
+            if page.rotation == 0:
+                first = rects[0]
+                position = {
+                    "x0": round(first.x0, 2),
+                    "y0": round(first.y0, 2),
+                    "x1": round(first.x1, 2),
+                    "y1": round(first.y1, 2),
+                    "page_width": round(page.rect.width, 2),
+                    "page_height": round(page.rect.height, 2),
+                }
+
             for rect in rects:
                 annotation = page.add_highlight_annot(rect)
                 annotation.set_colors(stroke=HIGHLIGHT_COLOR)
                 annotation.update()
 
-            result = (document.tobytes(), len(rects))
+            result = (document.tobytes(), len(rects), position)
 
     with _cache_lock:
         _cache[key] = result

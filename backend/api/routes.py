@@ -25,7 +25,11 @@ from backend.services.reindex_service import (
 )
 
 from backend.storage.document_store import get_all_documents, get_document
-from backend.pdf_processing.highlighter import highlight_term, MAX_TERM_LENGTH
+from backend.pdf_processing.highlighter import (
+    highlight_term,
+    highlight_term_with_position,
+    MAX_TERM_LENGTH,
+)
 
 
 router = APIRouter()
@@ -300,8 +304,8 @@ async def get_document_highlight_info(
     pdf_path = _stored_pdf_path(document_id)
 
     try:
-        _, matches = await run_in_threadpool(
-            highlight_term, pdf_path, page, term
+        _, matches, position = await run_in_threadpool(
+            highlight_term_with_position, pdf_path, page, term
         )
     except Exception:
         logger.exception("Could not search the PDF page for a term.")
@@ -309,7 +313,8 @@ async def get_document_highlight_info(
             status_code=500, detail="Unable to search this page."
         )
 
-    return {"matches": matches}
+    # "position" is where the first match is, so the viewer can scroll to it.
+    return {"matches": matches, "position": position}
 
 
 # Delete a document
