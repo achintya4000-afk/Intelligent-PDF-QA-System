@@ -20,13 +20,15 @@ from backend.config import GEMINI_MODEL
 from backend.generation.answer_generator import get_gemini_client
 from backend.generation.summarizer import _load_document_chunks
 
+from backend.generation.gemini_errors import gemini_error_status
+
 logger = logging.getLogger("uvicorn.error")
 
 # Each Gemini request stays comfortably small. Long PDFs are covered by up to
 # MAX_BATCHES evenly spaced batches, so cost and waiting time stay bounded.
 MAX_BATCH_CHARACTERS = 14000
 MAX_BATCHES = 6
-MAX_WORKERS = 3
+MAX_WORKERS = 2  # Balance generation speed with free-tier rate-limit pressure.
 
 # At most this many terms are requested per batch / returned per document.
 MAX_TERMS_PER_BATCH = 15
@@ -430,14 +432,21 @@ def _generate_batch_terms(filename: str, chunks: list[dict]) -> list[dict] | Non
                 error,
             )
         except Exception as error:
+            status = gemini_error_status(error)
             logger.warning(
                 "Glossary batch attempt %d failed: %r",
                 attempt + 1,
                 error,
             )
+            if status == 429:
+                raise RuntimeError(
+                    "Gemini rate limit reached during glossary generation (429). Wait a minute and try again."
+                ) from error
+            if status not in {503, 504}:
+                return None
 
         if attempt == 0:
-            time.sleep(1)
+            time.sleep(2)
 
     return None
 
@@ -454,11 +463,11 @@ def generate_document_glossary(document_id: str) -> dict:
     # Create the shared client once, before the worker threads start.
     get_gemini_client()
 
-    with ThreadPoolExecutor(max_workers=min(MAX_WORKERS, len(batches))) as pool:
-        results = list(pool.map(
-            lambda batch: _generate_batch_terms(filename, batch),
-            batches,
-        ))
+    # Generate sequentially to stay within the free-tier RPM limit.
+    results = [
+        _generate_batch_terms(filename, batch)
+        for batch in batches
+    ]
 
     failed = sum(1 for result in results if result is None)
 

@@ -14,6 +14,8 @@ from backend.config import GEMINI_MODEL
 from backend.generation.answer_generator import get_gemini_client
 from backend.storage.document_store import get_document
 
+from backend.generation.gemini_errors import gemini_error_status
+
 logger = logging.getLogger("uvicorn.error")
 
 BASE_DIR = Path(__file__).resolve().parents[2]
@@ -307,9 +309,16 @@ def generate_document_quiz(document_id: str, count: int = 5, difficulty: str = "
             logger.warning("Quiz generation attempt %d returned invalid data: %s", attempt + 1, error)
         except Exception as error:
             last_error = error
+            status = gemini_error_status(error)
             logger.warning("Quiz generation attempt %d failed: %r", attempt + 1, error)
+            if status == 429:
+                raise RuntimeError(
+                    "Gemini rate limit reached while generating the quiz (429). Wait a minute and try again."
+                ) from error
+            if status not in {503, 504} and not isinstance(error, ValueError):
+                raise RuntimeError(f"Quiz generation failed: {error}") from error
 
         if attempt == 0:
-            time.sleep(1)
+            time.sleep(2 if gemini_error_status(last_error) in {503, 504} else 1)
 
-    raise RuntimeError("Unable to generate a valid quiz from this PDF. Please try again.") from last_error
+    raise RuntimeError("Gemini is temporarily unavailable or returned invalid quiz data. Please try again.") from last_error

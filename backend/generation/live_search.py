@@ -12,17 +12,39 @@ from urllib.parse import urlparse
 # Search is triggered by an explicit request for fresh external information,
 # not by isolated words or a year that may simply appear in a PDF question.
 CURRENT_INFO_PATTERNS = (
+    # Explicit freshness language.
     r"\b(latest|newest|breaking|upcoming|recent developments|recent news|"
     r"latest developments|latest news|latest update|current events|"
-    r"current status|as of now|right now|today's news|today news|"
-    r"this week'?s news|this month's news|this year'?s updates|"
-    r"who is the current|who's the current|what is the current (?:president|prime minister|ceo|leader|price|rate|version|weather|exchange rate)|"
+    r"current status|as of now|right now|today'?s news|today news|"
+    r"this week'?s news|this month'?s news|this year'?s updates|"
+    r"yesterday|last night|this morning|earlier today|"
+    r"who is the current|who's the current|what is the current "
+    r"(?:president|prime minister|ceo|leader|price|rate|version|weather|exchange rate)|"
     r"current (?:price|exchange rate|weather|version|ceo|prime minister|president))\b",
+
+    # Questions about events that have just happened or are scheduled soon.
     r"\b(what happened|what's happening|whats happening|"
-    r"what is happening|who won|who is winning|who currently leads)\b",
+    r"what is happening|who won|who is winning|who currently leads|"
+    r"what did .{1,100} announce|why did .{1,100} announce|"
+    r"when was .{1,100} announced|when will .{1,100} take place)\b",
+
+    # Current sports and public-event schedules/results.
+    r"\b(ipl|auction|retention|retained|retirement|retired|"
+    r"resigned|appointed|elected|transferred|trade deadline|"
+    r"match result|squad announcement|player list)\b",
+
     r"\b(what time is it|what is the current time|what is the time in|current time in|"
     r"time in [a-z][a-z .'-]*|today's date|what date is it today)\b",
-    r"\b(202[5-9]|203[0-9])\b.*\b(latest|recent|developments|news|updates)\b",
+
+    # A dated question about a time-sensitive event, even if it does not
+    # contain words such as "latest" or "recent".
+    r"\b(?:19|20|21|22|23|24|25|26|27|28|29|30|31)\s+"
+    r"(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|"
+    r"jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)"
+    r"\s+20(?:2[5-9]|3[0-9])\b",
+
+    r"\b(20(?:2[5-9]|3[0-9]))\b.*\b(latest|recent|developments|news|updates|"
+    r"ipl|auction|retention|retirement|retired|announced|deadline|schedule)\b",
 )
 _DOCUMENT_CONTEXT_PATTERN = re.compile(
     r"\b(according to (?:the |my |this |your )?(?:pdf|document|report|file|paper)|"
@@ -46,7 +68,21 @@ def question_needs_current_information(question: str) -> bool:
         return False
     if _DOCUMENT_CONTEXT_PATTERN.search(text) or _NON_CURRENT_CONTEXT_PATTERN.search(text):
         return False
-    return any(re.search(pattern, text, re.IGNORECASE) for pattern in CURRENT_INFO_PATTERNS)
+    if any(re.search(pattern, text, re.IGNORECASE) for pattern in CURRENT_INFO_PATTERNS):
+        return True
+
+    has_numeric_date = bool(
+        re.search(r"\b(?:0?[1-9]|[12]\d|3[01])[/-](?:0?[1-9]|1[0-2])[/-]20\d{2}\b", text)
+    )
+    has_recent_event_language = bool(
+        re.search(
+            r"\b(announc\w*|retir\w*|retention|auction|deadline|appointed|"
+            r"resigned|elected|released|result|schedule|ipl)\b",
+            text,
+            re.IGNORECASE,
+        )
+    )
+    return has_numeric_date and has_recent_event_language
 
 
 def _field(value, name, default=None):

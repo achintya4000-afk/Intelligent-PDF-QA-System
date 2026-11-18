@@ -28,6 +28,8 @@ from backend.generation.live_search import (
     question_needs_current_information
 )
 
+from backend.generation.gemini_errors import is_quota_error, gemini_error_status
+
 logger = logging.getLogger(__name__)
 
 
@@ -166,7 +168,8 @@ CURRENT USER QUESTION:
                 prompt,
                 temperature=0.4,
                 max_output_tokens=2048,
-                google_search=True
+                google_search=True,
+                max_attempts=1
             )
             answer = (response.text or "").strip()
             web_metadata = extract_grounding_metadata(response)
@@ -197,25 +200,25 @@ CURRENT USER QUESTION:
                 f"Unable to generate a general answer using Gemini: {search_error}"
             ) from search_error
 
+        status = gemini_error_status(search_error)
         logger.warning("Gemini Google Search grounding failed: %s", search_error, exc_info=True)
-        # Keep the answer available if grounding is temporarily unavailable.
-        # Be explicit that freshness was not verified.
-        try:
-            answer = generate_gemini_text(
-                prompt + "\n\nLive web search was unavailable for this response. "
-                "Do not claim to have checked current sources.",
-                temperature=0.4,
-                max_output_tokens=2048
-            )
-            answer = re.sub(r"\[\s*W\d+(?:\s*[,;]\s*W\d+)*\s*\]", "", answer)
-            search_notice = (
-                "\n\n*Live web search was unavailable, so current "
-                "information could not be verified.*"
-            )
-        except Exception as error:
+
+        # A 429 means the project is rate-limited. Sending an ungrounded
+        # fallback immediately would consume another request and usually fail
+        # too, increasing latency without helping the user.
+        if status == 429:
             raise RuntimeError(
-                f"Unable to generate a general answer using Gemini: {error}"
+                "Gemini rate limit reached (429). Please wait a minute before asking for current information again."
             ) from search_error
+
+        # A current-information question must not be answered from an
+        # ungrounded fallback after live search fails. Return a clear message
+        # instead of making potentially outdated or fabricated claims.
+        answer = (
+            "I couldn't verify the latest information because live web search "
+            "is temporarily unavailable. Please try again shortly."
+        )
+        search_notice = ""
 
     answer = remove_citation_markers(answer)
 

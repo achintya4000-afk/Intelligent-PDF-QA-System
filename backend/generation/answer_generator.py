@@ -10,6 +10,8 @@ from backend.config import GEMINI_API_KEY, GEMINI_MODEL
 
 # Uses uvicorn's own logger so messages appear in the terminal
 # where the backend is running.
+from backend.generation.gemini_errors import gemini_error_status
+
 logger = logging.getLogger("uvicorn.error")
 
 
@@ -260,7 +262,9 @@ def generate_gemini_response(
     prompt: str,
     temperature: float = 0.2,
     max_output_tokens: int = 2048,
-    google_search: bool = False
+    google_search: bool = False,
+    max_attempts: int = 2,
+    retry_delay: float = 2.0
 ):
     """
     Send a prompt to Gemini and return the complete response object.
@@ -273,7 +277,9 @@ def generate_gemini_response(
     client = get_gemini_client()
     last_error = None
 
-    for attempt in range(2):
+    max_attempts = max(1, int(max_attempts))
+
+    for attempt in range(max_attempts):
         try:
             config_kwargs = {
                 "temperature": temperature,
@@ -301,6 +307,13 @@ def generate_gemini_response(
 
         except Exception as error:
             last_error = error
+            status = gemini_error_status(error)
+            if status == 429:
+                raise RuntimeError(
+                    "Gemini rate limit reached (429). Please wait briefly before trying again."
+                ) from error
+            if status not in {503, 504}:
+                raise RuntimeError(f"Gemini request failed: {error}") from error
 
         logger.warning(
             "Gemini attempt %d failed: %r",
@@ -308,10 +321,13 @@ def generate_gemini_response(
             last_error
         )
 
-        if attempt == 0:
-            time.sleep(2)
+        if attempt < max_attempts - 1:
+            # Retry only temporary upstream outages, not quota/rate-limit errors.
+            time.sleep(max(0.0, float(retry_delay)))
 
-    raise RuntimeError(str(last_error))
+    raise RuntimeError(
+        "Gemini is temporarily unavailable. Please try again in a minute."
+    ) from last_error
 
 
 def generate_gemini_text(
