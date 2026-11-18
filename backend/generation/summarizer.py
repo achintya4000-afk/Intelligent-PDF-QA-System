@@ -12,8 +12,6 @@ from backend.generation.answer_generator import get_gemini_client
 from backend.storage.document_store import get_document
 
 
-from backend.generation.gemini_errors import gemini_error_status
-
 logger = logging.getLogger("uvicorn.error")
 
 BASE_DIR = Path(__file__).resolve().parents[2]
@@ -190,13 +188,6 @@ def _generate_text(prompt: str, max_output_tokens: int) -> str:
 
         except Exception as error:
             last_error = error
-            status = gemini_error_status(error)
-            if status == 429:
-                raise RuntimeError(
-                    "Gemini rate limit reached while generating the summary (429). Wait a minute and try again."
-                ) from error
-            if status not in {503, 504}:
-                raise RuntimeError(f"Summary generation failed: {error}") from error
 
         logger.warning(
             "Gemini summary attempt %d failed: %r",
@@ -205,9 +196,9 @@ def _generate_text(prompt: str, max_output_tokens: int) -> str:
         )
 
         if attempt == 0:
-            time.sleep(2)
+            time.sleep(1)
 
-    raise RuntimeError("Gemini is temporarily unavailable. Please try the summary again in a minute.") from last_error
+    raise RuntimeError("Unable to generate the summary. Please try again.") from last_error
 
 
 def _build_summary_prompt(

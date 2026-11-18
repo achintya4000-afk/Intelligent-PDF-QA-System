@@ -19,7 +19,6 @@ part only and are removed from the general part. The general part can never
 carry a PDF citation.
 """
 
-import logging
 import re
 
 from backend.generation.answer_generator import (
@@ -34,13 +33,9 @@ from backend.generation.answer_generator import (
     validate_retrieved_chunks
 )
 from backend.generation.general_answer_generator import (
-    generate_general_answer,
     remove_citation_markers
 )
-from backend.generation.live_search import question_needs_current_information
 
-
-logger = logging.getLogger(__name__)
 
 PDF_HEADER = "PDF ANSWER:"
 GENERAL_HEADER = "GENERAL AI ADDITION:"
@@ -280,89 +275,9 @@ CURRENT USER QUESTION:
     if general_part:
         answer = f"{pdf_part}\n\n{GENERAL_SECTION_TITLE}\n\n{general_part}"
 
-    web_sources = []
-    search_queries = []
-    web_search_used = False
-    inline_web_citations = []
-    search_suggestion_html = ""
-
-    # Auto mode only adds current web information when the user's question
-    # explicitly asks for recent or time-sensitive facts.
-    if question_needs_current_information(question):
-        try:
-            web_result = generate_general_answer(
-                question=question,
-                history=conversation_history,
-                follow_up_of=follow_up_of
-            )
-            if web_result.get("web_search_used"):
-                web_sources = web_result.get("web_sources", [])
-                search_queries = web_result.get("search_queries", [])
-                inline_web_citations = web_result.get("inline_web_citations", [])
-                search_suggestion_html = web_result.get("search_suggestion_html", "")
-                web_search_used = True
-
-                # Synthesize from the already-grounded PDF answer and the
-                # separately grounded web answer. Keep citation IDs intact.
-                synthesis_prompt = f"""
-You are DocuMind. Produce one coherent answer to the user's question
-using only the supplied material as its factual basis. Do not add outside
-facts. Avoid repeating information. Preserve every [S#] and [W#] citation
-exactly where it supports a claim. Never invent, renumber, or remove citation
-IDs. If a detail is not supported, say that it could not be verified.
-
-PDF RESPONSE (the PDF-cited portion uses [S#]. It may also contain a clearly
-labelled general-AI addition; preserve that attribution and do not relabel it
-as PDF or web evidence):
-{answer}
-
-WEB-GROUNDED ANSWER (citations [W#] refer to Google Search sources):
-{web_result['answer']}
-
-USER QUESTION:
-{question}
-
-Write the final answer in clear Markdown. Keep PDF and web citations distinct.
-"""
-                try:
-                    synthesized = generate_gemini_text(
-                        synthesis_prompt,
-                        temperature=0.2,
-                        max_output_tokens=3072
-                    ).strip()
-                    if synthesized:
-                        # Retain only citations backed by the returned source sets.
-                        valid_pdf = {item.get("source_id") for item in cited_sources}
-                        valid_web = {item.get("source_id") for item in web_sources}
-                        synthesized = re.sub(
-                            r"\[S(\d+)\]",
-                            lambda m: m.group(0) if f"S{m.group(1)}" in valid_pdf else "",
-                            synthesized
-                        )
-                        synthesized = re.sub(
-                            r"\[W(\d+)\]",
-                            lambda m: m.group(0) if f"W{m.group(1)}" in valid_web else "",
-                            synthesized
-                        )
-                        answer = synthesized
-                    else:
-                        answer += "\n\n## Current information from the web\n\n" + web_result["answer"]
-                except Exception:
-                    logger.exception("Could not synthesize PDF and web evidence; preserving both grounded sections")
-                    answer += "\n\n## Current information from the web\n\n" + web_result["answer"]
-        except Exception:
-            # A failed web request must never discard the successful PDF answer.
-            logger.exception("Live web search failed in Auto mode; returning the PDF answer")
-
     return {
         "answer": answer,
         "sources": cited_sources,
         "supported": True,
-        "general_added": bool(general_part),
-        "web_sources": web_sources,
-        "search_queries": search_queries,
-        "web_search_used": web_search_used,
-        "inline_web_citations": inline_web_citations,
-        "search_suggestion_html": search_suggestion_html,
-        "current_time_used": False
+        "general_added": bool(general_part)
     }

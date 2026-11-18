@@ -10,10 +10,6 @@ from backend.generation.hybrid_answer_generator import (
     generate_hybrid_answer
 )
 from backend.generation.evidence_checker import assess_retrieval_evidence
-from backend.generation.current_time import (
-    build_current_time_answer,
-    is_current_time_question
-)
 
 
 # Supported response modes (the exact values the API accepts).
@@ -270,14 +266,7 @@ def build_result(
         "document_id": document_id if is_pdf_answer else None,
         "question": question,
         "answer": result["answer"],
-        "sources": result.get("sources", []) if is_pdf_answer else [],
-        "web_sources": result.get("web_sources", []),
-        "search_queries": result.get("search_queries", []),
-        "inline_web_citations": result.get("inline_web_citations", []),
-        "search_suggestion_html": result.get("search_suggestion_html", ""),
-        "web_search_used": bool(result.get("web_search_used", False)),
-        "current_time_used": bool(result.get("current_time_used", False)),
-        "current_time_iso": result.get("current_time_iso"),
+        "sources": result["sources"] if is_pdf_answer else [],
         "supported": bool(result["supported"]) if is_pdf_answer else False,
         "mode": mode,
         "answer_type": answer_type,
@@ -330,18 +319,6 @@ def process_chat_question(
     conversation_history = validate_history(
         history if history is not None else []
     )
-
-    # Exact current date/time comes from the server clock, not Gemini or
-    # web snippets. This shortcut is deliberately unavailable in Only PDF.
-    if mode in (MODE_AUTO, MODE_AI) and is_current_time_question(question):
-        clock_result = build_current_time_answer()
-        return build_result(
-            mode,
-            ANSWER_TYPE_GENERAL_AI,
-            clock_result,
-            None,
-            question
-        )
 
     # For a follow-up, tell the answer generator which earlier
     # question the pronouns ("it", "this") refer to.
@@ -455,7 +432,7 @@ def process_chat_question(
             # Gemini answered from the PDF and cited real sources.
             answer_type = (
                 ANSWER_TYPE_HYBRID
-                if result.get("general_added") or result.get("web_search_used")
+                if result.get("general_added")
                 else ANSWER_TYPE_PDF
             )
 
