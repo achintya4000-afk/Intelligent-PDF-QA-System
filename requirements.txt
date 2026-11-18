@@ -7,7 +7,7 @@ sentence-transformers
 faiss-cpu
 rank-bm25
 numpy
-google-genai
+google-genai<3.0.0
 
 # Local OCR for scanned and handwritten PDFs (CPU only).
 # Deliberately pinned: PaddlePaddle 3.2.0 is the version the official PaddleOCR

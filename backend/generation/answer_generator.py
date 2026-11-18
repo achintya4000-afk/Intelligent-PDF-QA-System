@@ -256,45 +256,44 @@ def build_conversation_context(history: list) -> str:
     return "\n".join(conversation_parts)
 
 
-def generate_gemini_text(
+def generate_gemini_response(
     prompt: str,
     temperature: float = 0.2,
-    max_output_tokens: int = 2048
-) -> str:
+    max_output_tokens: int = 2048,
+    google_search: bool = False
+):
     """
-    Send a prompt to Gemini and return the non-empty answer text.
+    Send a prompt to Gemini and return the complete response object.
 
-    Shared by PDF-grounded and general answer generation so both use
-    the same client, model and retry behaviour.
-
-    One retry: Gemini sometimes fails with a temporary error
-    (rate limit, overload) or returns no text at all.
-
-    Raises:
-        RuntimeError: when no usable text could be generated.
+    Google Search grounding is opt-in. PDF-only generation continues to
+    call this helper without tools, so external search cannot enter that
+    pipeline.
     """
 
     client = get_gemini_client()
-
     last_error = None
 
     for attempt in range(2):
         try:
+            config_kwargs = {
+                "temperature": temperature,
+                "max_output_tokens": max_output_tokens
+            }
+
+            if google_search:
+                config_kwargs["tools"] = [
+                    types.Tool(google_search=types.GoogleSearch())
+                ]
+
             response = client.models.generate_content(
                 model=GEMINI_MODEL,
                 contents=prompt,
-                config=types.GenerateContentConfig(
-                    temperature=temperature,
-                    # Generous limit: a reply cut off in the middle of
-                    # a citation (for example "[S4") cannot be linked.
-                    max_output_tokens=max_output_tokens
-                )
+                config=types.GenerateContentConfig(**config_kwargs)
             )
 
-            text = response.text
-
-            if isinstance(text, str) and text.strip():
-                return text.strip()
+            response_text = getattr(response, "text", None)
+            if isinstance(response_text, str) and response_text.strip():
+                return response
 
             last_error = RuntimeError(
                 "Gemini returned an empty response."
@@ -313,6 +312,24 @@ def generate_gemini_text(
             time.sleep(2)
 
     raise RuntimeError(str(last_error))
+
+
+def generate_gemini_text(
+    prompt: str,
+    temperature: float = 0.2,
+    max_output_tokens: int = 2048
+) -> str:
+    """
+    Backwards-compatible text-only wrapper used by existing PDF generators.
+    """
+
+    response = generate_gemini_response(
+        prompt,
+        temperature=temperature,
+        max_output_tokens=max_output_tokens,
+        google_search=False
+    )
+    return response.text.strip()
 
 
 def generate_answer(

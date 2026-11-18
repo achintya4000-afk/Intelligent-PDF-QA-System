@@ -174,6 +174,11 @@
                             role: message.role,
                             content: String(message.content ?? ''),
                             ...(Array.isArray(message.sources) ? { sources: message.sources } : {}),
+                            ...(Array.isArray(message.webSources) ? { webSources: message.webSources } : {}),
+                            ...(Array.isArray(message.searchQueries) ? { searchQueries: message.searchQueries } : {}),
+                            ...(typeof message.searchSuggestionHtml === 'string' && message.searchSuggestionHtml.length <= 12000 ? { searchSuggestionHtml: message.searchSuggestionHtml } : {}),
+                            ...(typeof message.webSearchUsed === 'boolean' ? { webSearchUsed: message.webSearchUsed } : {}),
+                            ...(typeof message.currentTimeUsed === 'boolean' ? { currentTimeUsed: message.currentTimeUsed } : {}),
                             ...(ANSWER_TYPES.includes(message.answerType) ? { answerType: message.answerType } : {}),
                             ...(typeof message.supported === 'boolean' ? { supported: message.supported } : {}),
                             ...(typeof message.fallbackReason === 'string' ? { fallbackReason: message.fallbackReason } : {}),
@@ -1262,6 +1267,13 @@
             if (chat.messages.length > 40) {
                 chat.messages.splice(0, chat.messages.length - 40);
             }
+            chat.messages.forEach(message => {
+                if (typeof message.searchSuggestionHtml === 'string' && message.searchSuggestionHtml.length > 12000) {
+                    // The suggestion iframe is useful in the active response, but
+                    // oversized HTML should not consume persistent chat storage.
+                    delete message.searchSuggestionHtml;
+                }
+            });
         });
 
         if (!state.chats.some(chat => chat.id === state.activeChatId)) {
@@ -1363,13 +1375,22 @@
         toast('All chat history deleted.', 'success');
     }
 
-    function renderSafeMarkdown(target, source, sources = []) {
+    function renderSafeMarkdown(target, source, sources = [], webSources = []) {
         // Escape untrusted content before adding the limited Markdown and citation markup.
-        const sourceIds = new Set(
-            (Array.isArray(sources) ? sources : []).map((item, index) => {
-                const id = typeof item.source_id === 'string' ? item.source_id : `S${index + 1}`;
-                return /^S\d+$/.test(id) ? id : null;
-            }).filter(Boolean)
+        const pdfSourceIds = (Array.isArray(sources) ? sources : []).map((item, index) => {
+            const id = typeof item.source_id === 'string' ? item.source_id : `S${index + 1}`;
+            return /^S\d+$/.test(id) ? id : null;
+        }).filter(Boolean);
+        const webSourceIds = (Array.isArray(webSources) ? webSources : [])
+            .map(item => item && typeof item.source_id === 'string' && /^W\d+$/.test(item.source_id)
+                ? item.source_id
+                : null)
+            .filter(Boolean);
+        const sourceIds = new Set([...pdfSourceIds, ...webSourceIds]);
+        const webSourceMap = new Map(
+            (Array.isArray(webSources) ? webSources : [])
+                .filter(item => item && typeof item.source_id === 'string' && /^W\d+$/.test(item.source_id))
+                .map(item => [item.source_id, item.url])
         );
         // Line-by-line rendering. The model often puts a heading, bullets and plain
         // sentences in one block without blank lines between them, so every line is
@@ -1380,7 +1401,7 @@
 
         const flushParagraph = () => {
             if (!paragraph.length) return;
-            html.push(`<p>${paragraph.map(line => formatInlineMarkdown(line, sourceIds)).join('<br>')}</p>`);
+            html.push(`<p>${paragraph.map(line => formatInlineMarkdown(line, sourceIds, webSourceMap)).join('<br>')}</p>`);
             paragraph = [];
         };
 
@@ -1406,7 +1427,7 @@
             if (heading) {
                 flushParagraph();
                 closeList();
-                html.push(`<h${heading[1].length}>${formatInlineMarkdown(heading[2], sourceIds)}</h${heading[1].length}>`);
+                html.push(`<h${heading[1].length}>${formatInlineMarkdown(heading[2], sourceIds, webSourceMap)}</h${heading[1].length}>`);
                 return;
             }
 
@@ -1421,7 +1442,7 @@
                     listType = type;
                 }
 
-                html.push(`<li>${formatInlineMarkdown((bullet || numbered)[1], sourceIds)}</li>`);
+                html.push(`<li>${formatInlineMarkdown((bullet || numbered)[1], sourceIds, webSourceMap)}</li>`);
                 return;
             }
 
@@ -1435,27 +1456,38 @@
         target.innerHTML = html.join('');
     }
 
-    function formatInlineMarkdown(text, sourceIds = new Set()) {
+    function formatInlineMarkdown(text, sourceIds = new Set(), webSourceMap = new Map()) {
         const formatted = text
             .replace(/`([^`]+)`/g, '<code>$1</code>')
             .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
             .replace(/\*([^*]+)\*/g, '<em>$1</em>');
 
-        // Handles single citations such as [S1] and grouped citations such as
-        // [S1, S3] (saved by older versions of the backend). Every label that has a
-        // matching source becomes a button; unknown labels stay as plain text.
+        // PDF citations open the matching PDF passage; web citations open
+        // the genuine URL returned in Gemini grounding metadata.
         return formatted.replace(
-            /\[\s*(S\d+(?:\s*[,;]\s*S\d+)*)\s*\]/g,
+            /\[\s*([SW]\d+(?:\s*[,;]\s*[SW]\d+)*)\s*\]/g,
             (match, group) => {
-                const ids = group.match(/S\d+/g) || [];
-
+                const ids = group.match(/[SW]\d+/g) || [];
                 if (!ids.some(sourceId => sourceIds.has(sourceId))) return match;
 
-                return ids.map(sourceId => (
-                    sourceIds.has(sourceId)
-                        ? `<button type="button" class="citation" data-action="open-source" data-source-id="${sourceId}" aria-label="Open source ${sourceId}">${sourceId}</button>`
-                        : `[${sourceId}]`
-                )).join(' ');
+                return ids.map(sourceId => {
+                    if (!sourceIds.has(sourceId)) return `[${sourceId}]`;
+
+                    if (sourceId.startsWith('W')) {
+                        const url = webSourceMap.get(sourceId);
+                        if (!url) return `[${sourceId}]`;
+                        let safeUrl = '';
+                        try {
+                            const parsed = new URL(url);
+                            if (['http:', 'https:'].includes(parsed.protocol)) safeUrl = parsed.href;
+                        } catch (_) {}
+                        return safeUrl
+                            ? `<a class="citation citation-web" href="${escapeHTML(safeUrl)}" target="_blank" rel="noopener noreferrer" aria-label="Open web source ${sourceId}">${sourceId}</a>`
+                            : `[${sourceId}]`;
+                    }
+
+                    return `<button type="button" class="citation" data-action="open-source" data-source-id="${sourceId}" aria-label="Open source ${sourceId}">${sourceId}</button>`;
+                }).join(' ');
             }
         );
     }
@@ -1501,6 +1533,27 @@
             return null;
         }
 
+        if (message.webSearchUsed) {
+            if (message.answerType === 'hybrid') {
+                badgeText = 'PDF + Web-Grounded Answer';
+                badgeClass = 'answer-badge--hybrid';
+                icon = 'layers';
+                note = 'Answer combines cited PDF evidence and Google Search grounding.';
+            } else {
+                badgeText = 'Web-Grounded Answer';
+                badgeClass = 'answer-badge--web';
+                icon = 'globe';
+                // Keep useful Auto fallback context instead of replacing it.
+                if (!note) note = 'Current information retrieved using Google Search grounding.';
+                else note += ' Current information was also checked using Google Search grounding.';
+            }
+        } else if (message.currentTimeUsed) {
+            badgeText = 'Current Date & Time';
+            badgeClass = 'answer-badge--web';
+            icon = 'clock';
+            note = 'Provided by the server clock using the configured timezone.';
+        }
+
         const meta = document.createElement('div');
         meta.className = 'answer-meta';
 
@@ -1529,12 +1582,14 @@
 
     // Sources panel content for one assistant message.
     function renderSourcesForMessage(message) {
-        if (message?.answerType === 'general_ai') {
-            renderSources([], 'General AI answers do not use PDF sources.');
-            return;
-        }
-
-        renderSources(message?.sources || []);
+        renderSources(
+            message?.sources || [],
+            message?.webSearchUsed
+                ? 'Web sources are listed separately below.'
+                : 'No external or PDF sources were used for this answer.',
+            message?.webSources || [],
+            message?.searchSuggestionHtml || ''
+        );
     }
 
     function renderMessage(message, messageIndex = -1) {
@@ -1567,7 +1622,7 @@
         const body = document.createElement('div');
         body.className = 'message-body';
         // A general AI answer has no PDF sources, so no citation buttons are made.
-        renderSafeMarkdown(body, message.content || '', isGeneral ? [] : (message.sources || []));
+        renderSafeMarkdown(body, message.content || '', isGeneral ? [] : (message.sources || []), message.webSources || []);
         content.appendChild(body);
 
         if (
@@ -1657,68 +1712,105 @@
         `;
     }
 
-    function renderSources(sources, emptyMessage = 'Retrieved passages will appear here after you ask a question.') {
+    function renderSources(
+        sources,
+        emptyMessage = 'Retrieved passages will appear here after you ask a question.',
+        webSources = [],
+        searchSuggestionHtml = ''
+    ) {
         const list = byId('sourcesList');
+        const hasPdfSources = state.settings.showSources && Array.isArray(sources) && sources.length > 0;
+        const hasWebSources = Array.isArray(webSources) && webSources.length > 0;
+        const hasGoogleSuggestion = typeof searchSuggestionHtml === 'string' && searchSuggestionHtml.trim().length > 0;
 
-        if (
-            !state.settings.showSources ||
-            !Array.isArray(sources) ||
-            !sources.length
-        ) {
+        if (!hasPdfSources && !hasWebSources && !hasGoogleSuggestion) {
             list.innerHTML = `
                 <div class="empty-state compact">
                     <div class="empty-icon">
                         <i data-lucide="quote"></i>
                     </div>
-                    <p>
-                        ${escapeHTML(emptyMessage)}
-                    </p>
+                    <p>${escapeHTML(emptyMessage)}</p>
                 </div>
             `;
-
             refreshIcons();
             return;
         }
 
-        list.innerHTML = sources.map((source, index) => {
-            const sourceId =
-                typeof source.source_id === 'string' && /^S\d+$/.test(source.source_id)
-                    ? source.source_id
-                    : `S${index + 1}`;
+        const sections = [];
 
-            const page =
-                source.page ??
-                source.page_number ??
-                source.metadata?.page ??
-                '?';
+        if (hasPdfSources) {
+            sections.push('<h4 class="source-section-heading">PDF Sources</h4>');
+            sections.push(sources.map((source, index) => {
+                const sourceId =
+                    typeof source.source_id === 'string' && /^S\d+$/.test(source.source_id)
+                        ? source.source_id
+                        : `S${index + 1}`;
+                const page = source.page ?? source.page_number ?? source.metadata?.page ?? '?';
+                const title = source.title || source.filename || `Source ${index + 1}`;
+                const text = source.text || source.content || source.chunk || '';
 
-            const title =
-                source.title ||
-                source.filename ||
-                `Source ${index + 1}`;
+                return `
+                    <article class="source-card" data-source-id="${escapeHTML(sourceId)}">
+                        <div class="source-header">
+                            <strong class="source-title">${escapeHTML(title)} (${escapeHTML(sourceId)})</strong>
+                            ${sourcePageMarkup(page)}
+                        </div>
+                        <p class="source-text">${escapeHTML(text)}</p>
+                    </article>
+                `;
+            }).join(''));
+        }
 
-            const text =
-                source.text ||
-                source.content ||
-                source.chunk ||
-                '';
+        if (hasWebSources) {
+            sections.push('<h4 class="source-section-heading web-source-heading">Web Sources</h4>');
+            sections.push(webSources.map((source, index) => {
+                const title = safeText(source.title, `Web source ${index + 1}`);
+                const url = typeof source.url === 'string' ? source.url : '';
+                let safeUrl = '';
 
-            return `
-                <article class="source-card" data-source-id="${escapeHTML(sourceId)}">
-                    <div class="source-header">
-                        <strong class="source-title">
-                            ${escapeHTML(title)} (${escapeHTML(sourceId)})
-                        </strong>
+                try {
+                    const parsed = new URL(url);
+                    if (['http:', 'https:'].includes(parsed.protocol)) safeUrl = parsed.href;
+                } catch (_) {
+                    safeUrl = '';
+                }
 
-                        ${sourcePageMarkup(page)}
-                    </div>
+                if (!safeUrl) return '';
 
-                    <p class="source-text">
-                        ${escapeHTML(text)}
-                    </p>
-                </article>
-            `;
-        }).join('');
+                let domain = '';
+                try { domain = new URL(safeUrl).hostname; } catch (_) {}
+
+                return `
+                    <article class="source-card web-source-card">
+                        <div class="source-header">
+                            <strong class="source-title">${escapeHTML(title)}</strong>
+                        </div>
+                        <a class="web-source-link" href="${escapeHTML(safeUrl)}" target="_blank" rel="noopener noreferrer">
+                            ${escapeHTML(title || domain || safeUrl)}
+                            ${domain && !/vertexaisearch\.cloud\.google\.com$/i.test(domain) ? `<span class="web-source-domain">${escapeHTML(domain)}</span>` : ''}
+                            <i data-lucide="external-link" aria-hidden="true"></i>
+                        </a>
+                    </article>
+                `;
+            }).join(''));
+        }
+
+        list.innerHTML = sections.join('');
+
+        // Google requires its returned Search Suggestion snippet to be shown
+        // unchanged when supplied. Isolate it in a sandboxed iframe so the
+        // API-provided HTML cannot execute scripts in the application page.
+        if (typeof searchSuggestionHtml === 'string' && searchSuggestionHtml.trim()) {
+            const suggestionFrame = document.createElement('iframe');
+            suggestionFrame.className = 'google-search-suggestion';
+            suggestionFrame.title = 'Google Search suggestions';
+            suggestionFrame.setAttribute('sandbox', 'allow-popups allow-popups-to-escape-sandbox allow-top-navigation-by-user-activation');
+            suggestionFrame.setAttribute('loading', 'eager');
+            suggestionFrame.srcdoc = searchSuggestionHtml;
+            list.prepend(suggestionFrame);
+        }
+
+        refreshIcons();
     }
 
     function showTyping() {
@@ -1876,6 +1968,11 @@
                 role: 'assistant',
                 content: answer,
                 sources,
+                webSources: Array.isArray(result.web_sources) ? result.web_sources : [],
+                searchQueries: Array.isArray(result.search_queries) ? result.search_queries : [],
+                searchSuggestionHtml: typeof result.search_suggestion_html === 'string' ? result.search_suggestion_html : '',
+                webSearchUsed: Boolean(result.web_search_used),
+                currentTimeUsed: Boolean(result.current_time_used),
                 mode,
                 ...(answerType ? { answerType } : {}),
                 ...(typeof result.supported === 'boolean' ? { supported: result.supported } : {}),
@@ -3344,7 +3441,7 @@
                     return;
                 }
 
-                renderSources(message.sources);
+                renderSourcesForMessage(message);
                 const sourceCard = Array.from(
                     byId('sourcesList').querySelectorAll('.source-card')
                 ).find(card => card.dataset.sourceId === sourceId);

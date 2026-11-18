@@ -465,7 +465,8 @@ def export_glossary(request: GlossaryExportRequest):
 @router.post("/api/chat")
 async def chat_with_document(request: ChatRequest):
     try:
-        result = process_chat_question(
+        result = await run_in_threadpool(
+            process_chat_question,
             document_id=request.document_id,
             question=request.question,
             top_k=request.top_k,
@@ -489,6 +490,41 @@ async def chat_with_document(request: ChatRequest):
         return {
             "answer": result["answer"],
             "sources": sources,
+            "web_sources": (
+                result.get("web_sources", [])
+                if request.mode != "pdf"
+                else []
+            ),
+            "search_queries": (
+                result.get("search_queries", [])
+                if request.mode != "pdf"
+                else []
+            ),
+            "inline_web_citations": (
+                result.get("inline_web_citations", [])
+                if request.mode != "pdf"
+                else []
+            ),
+            "search_suggestion_html": (
+                result.get("search_suggestion_html", "")
+                if request.mode != "pdf"
+                else ""
+            ),
+            "web_search_used": (
+                bool(result.get("web_search_used", False))
+                if request.mode != "pdf"
+                else False
+            ),
+            "current_time_used": (
+                bool(result.get("current_time_used", False))
+                if request.mode != "pdf"
+                else False
+            ),
+            "current_time_iso": (
+                result.get("current_time_iso")
+                if request.mode != "pdf"
+                else None
+            ),
             # True only when the answer is grounded in PDF evidence.
             "supported": result["supported"],
             # The mode that was requested: "auto", "pdf" or "ai".

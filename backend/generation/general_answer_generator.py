@@ -11,14 +11,24 @@ The Gemini client, model and retry logic are shared with the PDF-grounded
 generator in answer_generator.py.
 """
 
+import logging
 import re
 
 from backend.generation.answer_generator import (
     CITATION_GROUP_PATTERN,
     build_conversation_context,
+    generate_gemini_response,
     generate_gemini_text,
     validate_history
 )
+from backend.generation.current_time import get_ist_now
+from backend.generation.live_search import (
+    add_inline_web_citations,
+    extract_grounding_metadata,
+    question_needs_current_information
+)
+
+logger = logging.getLogger(__name__)
 
 
 def remove_citation_markers(answer: str) -> str:
@@ -83,8 +93,15 @@ def generate_general_answer(
     else:
         follow_up_note = "This may be an independent question."
 
+    current_ist = get_ist_now().strftime("%A, %d %B %Y, %I:%M:%S %p IST")
+
     prompt = f"""
 You are DocuMind, a helpful and accurate AI assistant.
+
+CURRENT DATE AND TIME CONTEXT:
+{current_ist}
+Use this only to interpret relative dates such as today, yesterday and this week.
+Do not present this timestamp unless it answers the user's question.
 
 The user is asking for a GENERAL answer. You do not have access to
 any uploaded document in this reply.
@@ -118,23 +135,87 @@ ANSWERING RULES:
    you may not have, say so honestly instead of guessing.
 5. Keep the answer focused. Use short paragraphs or bullet points
    when that makes it easier to read, and code blocks for code.
+6. When the question asks for current, recent, latest, today's or
+   time-sensitive information, use the available Google Search tool.
+   Base current claims on retrieved search results and be clear when
+   a date or detail cannot be verified.
+7. For ordinary stable questions, answer from general knowledge and
+   do not search unless current sources materially improve the answer.
 
 CURRENT USER QUESTION:
 
 {question}
 """
 
-    try:
-        answer = generate_gemini_text(
-            prompt,
-            temperature=0.4,
-            max_output_tokens=2048
-        )
+    web_metadata = {
+        "web_sources": [],
+        "search_queries": [],
+        "web_search_used": False,
+        "inline_web_citations": [],
+        "search_suggestion_html": ""
+    }
+    search_notice = ""
 
-    except Exception as error:
-        raise RuntimeError(
-            f"Unable to generate a general answer using Gemini: {error}"
-        ) from error
+    use_google_search = question_needs_current_information(question)
+
+    try:
+        if use_google_search:
+            # Only explicitly time-sensitive/current questions receive the
+            # Google Search tool. Ordinary stable questions avoid a search call.
+            response = generate_gemini_response(
+                prompt,
+                temperature=0.4,
+                max_output_tokens=2048,
+                google_search=True
+            )
+            answer = (response.text or "").strip()
+            web_metadata = extract_grounding_metadata(response)
+        else:
+            answer = (generate_gemini_text(
+                prompt,
+                temperature=0.4,
+                max_output_tokens=2048
+            ) or "").strip()
+        # Never trust citation labels typed by the model itself. Only the
+        # grounding metadata below is allowed to create [W#] citations.
+        answer = re.sub(r"\[\s*W\d+(?:\s*[,;]\s*W\d+)*\s*\]", "", answer)
+        if use_google_search:
+            answer = add_inline_web_citations(
+                answer,
+                web_metadata.get("inline_web_citations", [])
+            )
+        if use_google_search and not web_metadata.get("web_search_used"):
+            search_notice = (
+                "\n\n*Google Search did not return verifiable web sources "
+                "for this response, so current information could not be confirmed.*"
+            )
+
+    except Exception as search_error:
+        if not use_google_search:
+            logger.exception("General Gemini answer generation failed")
+            raise RuntimeError(
+                f"Unable to generate a general answer using Gemini: {search_error}"
+            ) from search_error
+
+        logger.warning("Gemini Google Search grounding failed: %s", search_error, exc_info=True)
+        # Keep the answer available if grounding is temporarily unavailable.
+        # Be explicit that freshness was not verified.
+        try:
+            answer = generate_gemini_text(
+                prompt + "\n\nLive web search was unavailable for this response. "
+                "Do not claim to have checked current sources.",
+                temperature=0.4,
+                max_output_tokens=2048
+            )
+            answer = re.sub(r"\[\s*W\d+(?:\s*[,;]\s*W\d+)*\s*\]", "", answer)
+            search_notice = (
+                "\n\n*Live web search was unavailable, so current "
+                "information could not be verified.*"
+            )
+        except Exception as error:
+            raise RuntimeError(
+                f"Unable to generate a general answer using Gemini: {error}"
+            ) from search_error
 
     answer = remove_citation_markers(answer)
 
@@ -143,8 +224,13 @@ CURRENT USER QUESTION:
             "Gemini returned an answer containing only citation markers."
         )
 
+    if search_notice:
+        answer += search_notice
+
     return {
         "answer": answer,
         "sources": [],
-        "supported": False
+        "supported": False,
+        **web_metadata,
+        "current_time_used": False
     }
